@@ -1,0 +1,53 @@
+@endian big
+
+# Base Packet
+@packet {
+    len: varInt,
+    data: protoData,
+}
+
+# Packet in compressed mode
+@packet : Compressed(gzip) {
+    len: varInt,
+    uncompressedLen: varInt,
+    data: protoData,
+}
+
+# Packet in compressed and encrypted mode
+@packet : Compressed(gzip), Encrypted(aes256) {
+    len: varInt,
+    uncompressedLen: varInt,
+    data: protoData, # Decompress then Decrypt
+}
+
+# This is just regular date
+vec3 {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+# This is an enum with backing type
+weatherType : Enum(u8) {
+    Sunny = 1,
+    Cloudy = 2,
+    Rainy = 3,
+}
+
+# This is an event with ID 1
+playerPositionUpdate : Event(1) {
+    id: u32,
+    pos: vec3,
+}
+
+# This is an event with ID 2
+environmentTick : Event(2) {
+    time: u64,
+    weather: weatherType,
+}
+
+# This is the data segment of the packet
+protoData {
+    kind: u8,
+    event: Event(kind) # Match to kind
+}
