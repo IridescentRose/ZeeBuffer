@@ -20,6 +20,12 @@ pub const TokenKind = enum(u16) {
     KWEndian = 14,
 };
 
+// Pairs for symbols
+const PairSymStr = struct {
+    kind: TokenKind,
+    char: u8,
+};
+
 // Pairs for map
 const PairKWStr = struct {
     kind: TokenKind,
@@ -34,6 +40,17 @@ const KWStrs = [_]PairKWStr{
     .{ .kind = .KWEncrypted, .str = "Encrypted" },
     .{ .kind = .KWPacket, .str = "@packet" },
     .{ .kind = .KWEndian, .str = "@endian" },
+};
+
+// All valid schema symbols
+const SymStrs = [_]PairSymStr{
+    .{ .kind = .Equal, .char = '=' },
+    .{ .kind = .Colon, .char = ':' },
+    .{ .kind = .Comma, .char = ',' },
+    .{ .kind = .LParen, .char = '(' },
+    .{ .kind = .RParen, .char = ')' },
+    .{ .kind = .LSquirly, .char = '{' },
+    .{ .kind = .RSquirly, .char = '}' },
 };
 
 // A token in the schema
@@ -94,58 +111,14 @@ pub fn tokenize(self: *Self) ![]Token {
                 }
             },
 
-            ':' => {
+            ':', '{', '}', ',', '=', '(', ')' => {
                 try self.default_ident(&tokenArray);
                 try tokenArray.append(Token{
-                    .kind = TokenKind.Colon,
-                    .start = self.curr_index,
-                });
-            },
-
-            '{' => {
-                try self.default_ident(&tokenArray);
-                try tokenArray.append(Token{
-                    .kind = TokenKind.LSquirly,
-                    .start = self.curr_index,
-                });
-            },
-
-            '}' => {
-                try self.default_ident(&tokenArray);
-                try tokenArray.append(Token{
-                    .kind = TokenKind.RSquirly,
-                    .start = self.curr_index,
-                });
-            },
-
-            ',' => {
-                try self.default_ident(&tokenArray);
-                try tokenArray.append(Token{
-                    .kind = TokenKind.Comma,
-                    .start = self.curr_index,
-                });
-            },
-
-            '(' => {
-                try self.default_ident(&tokenArray);
-                try tokenArray.append(Token{
-                    .kind = TokenKind.LParen,
-                    .start = self.curr_index,
-                });
-            },
-
-            ')' => {
-                try self.default_ident(&tokenArray);
-                try tokenArray.append(Token{
-                    .kind = TokenKind.RParen,
-                    .start = self.curr_index,
-                });
-            },
-
-            '=' => {
-                try self.default_ident(&tokenArray);
-                try tokenArray.append(Token{
-                    .kind = TokenKind.Equal,
+                    .kind = inline for (SymStrs) |pair| {
+                        if (c == pair.char) {
+                            break pair.kind;
+                        }
+                    } else TokenKind.EOF,
                     .start = self.curr_index,
                 });
             },
