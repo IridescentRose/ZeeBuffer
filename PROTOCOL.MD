@@ -1,17 +1,10 @@
-# Specify we're using big endian for the protocol
+# Protocol Specification
+
+I want to write a schema to describe a protocol, from the packet layout and features, to the data contained. 
+
+Packet Layout:
+```zb
 @endian big
-
-# Specify that we're describing a protocol from the input direction
-# If this is set to output, then the direction of the protocol will be
-# flipped, and the protocol will be used to encode data instead of decode
-@direction in
-
-@state {
-    Handshake: 0,
-    Status: 1,
-    Login: 2,
-    Play: 3,
-}
 
 # Base Packet
 @packet {
@@ -22,16 +15,27 @@
 # Packet in compressed mode
 @packet : Compressed(gzip) {
     len: varInt,
-    uncompressedLen: varInt,
+    uncompLen: varInt,
     data: protoData,
 }
 
 # Packet in compressed and encrypted mode
 @packet : Compressed(gzip), Encrypted(aes256) {
     len: varInt,
-    uncompressedLen: varInt,
+    uncompLen: varInt,
     data: protoData, # Decompress then Decrypt
 }
+
+```
+
+The receiver then defines the property (language specific) to change into the various toggled modes (list enabled in order)
+
+The other schema should define the data structures contained within the protocol:
+
+```zb
+@endian big
+
+# ...
 
 # This is just regular data
 vec3 {
@@ -72,9 +76,25 @@ handshake: Out(1) State(Handshake) {
     serverPort: u16,
     nextState: u8,
 }
+```
 
-# This is the data segment of the packet
-protoData {
-    kind: u8,
-    event: Event(kind) # Match to kind
+## Defining the direction of the buffers
+
+```
+@direction in
+```
+
+This means that when the `In()` event specifier this it the input, and the `Out()` event specifier means that this is the output. If the direction is swapped, the `In()` is treated as output and `Out()` is treated as input. This could also be called as the relative direction of the protocol (relative to server / client).
+
+## Defining custom connection state
+
+```
+@state {
+	Handshake: 0,
+	Status: 1,
+	Login: 2,
+	Play: 3
 }
+```
+
+This defines the enum to be used in the `State()` specifier, which results in the data parsed being reflected on a multi-match statement. If `@state` is specified and an event does not have a `State()` specifier, then it is treated as the same across states.

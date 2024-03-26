@@ -4,7 +4,7 @@ ZeeBuffers is a protocol for serializing and deserializing data in a stateful cl
 
 # Usage
 
-The protocol is defined in the `.zb` protocol file. This protocol is a single file that defines the messages that can be sent between the client and server. The protocol file is then compiled to the target language using the `zb` compiler. The compiler generates code that can be used to send and receive messages in the target language.
+The [protocol](./PROTOCOL.MD) is defined in the `.zb` protocol file. This protocol is a single file that defines the messages that can be sent between the client and server. The protocol file is then compiled to the target language using the `zb` compiler. The compiler generates code that can be used to send and receive messages in the target language.
 
 To use in the target language you must pass a function to send or receive data, making ZeeBuffers compatible with any transport layer. ZeeBuffers does not handle the transport layer, only the serialization and deserialization of messages; decisions about how to send and receive data are left to the user. 
 
