@@ -4,20 +4,24 @@ const util = @import("util.zig");
 // All valid schema tokens
 pub const TokenKind = enum(u16) {
     EOF = 0,
-    Colon = 1,
-    LSquirly = 2,
-    RSquirly = 3,
-    Comma = 4,
-    LParen = 5,
-    RParen = 6,
+    LSquirly = 1,
+    RSquirly = 2,
+    LParen = 3,
+    RParen = 4,
+    Colon = 5,
+    Comma = 6,
     Ident = 7,
-    Equal = 8,
-    KWEnum = 9,
-    KWEvent = 10,
-    KWCompressed = 11,
-    KWEncrypted = 12,
-    KWPacket = 13,
-    KWEndian = 14,
+    KWIn = 8,
+    KWInOut = 9,
+    KWOut = 10,
+    KWEnum = 11,
+    KWEvent = 12,
+    KWCompressed = 13,
+    KWEncrypted = 14,
+    KWPacket = 15,
+    KWEndian = 16,
+    KWDirection = 17,
+    KWState = 18,
 };
 
 // Pairs for symbols
@@ -34,17 +38,21 @@ const PairKWStr = struct {
 
 // All valid schema keywords
 const KWStrs = [_]PairKWStr{
+    .{ .kind = .KWIn, .str = "In" },
+    .{ .kind = .KWInOut, .str = "InOut" },
+    .{ .kind = .KWOut, .str = "Out" },
     .{ .kind = .KWEnum, .str = "Enum" },
     .{ .kind = .KWEvent, .str = "Event" },
     .{ .kind = .KWCompressed, .str = "Compressed" },
     .{ .kind = .KWEncrypted, .str = "Encrypted" },
     .{ .kind = .KWPacket, .str = "@packet" },
     .{ .kind = .KWEndian, .str = "@endian" },
+    .{ .kind = .KWDirection, .str = "@direction" },
+    .{ .kind = .KWState, .str = "@state" },
 };
 
 // All valid schema symbols
 const SymStrs = [_]PairSymStr{
-    .{ .kind = .Equal, .char = '=' },
     .{ .kind = .Colon, .char = ':' },
     .{ .kind = .Comma, .char = ',' },
     .{ .kind = .LParen, .char = '(' },
@@ -111,7 +119,7 @@ pub fn tokenize(self: *Self) ![]Token {
                 }
             },
 
-            ':', '{', '}', ',', '=', '(', ')' => {
+            ':', '{', '}', ',', '(', ')' => {
                 try self.default_ident(&tokenArray);
                 try tokenArray.append(Token{
                     .kind = inline for (SymStrs) |pair| {
