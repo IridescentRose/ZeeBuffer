@@ -22,6 +22,7 @@ pub const TokenKind = enum(u16) {
     KWEndian = 16,
     KWDirection = 17,
     KWState = 18,
+    KWStateEvent = 19,
 };
 
 // Pairs for symbols
@@ -45,6 +46,7 @@ const KWStrs = [_]PairKWStr{
     .{ .kind = .KWEvent, .str = "Event" },
     .{ .kind = .KWCompressed, .str = "Compressed" },
     .{ .kind = .KWEncrypted, .str = "Encrypted" },
+    .{ .kind = .KWStateEvent, .str = "State" },
     .{ .kind = .KWPacket, .str = "@packet" },
     .{ .kind = .KWEndian, .str = "@endian" },
     .{ .kind = .KWDirection, .str = "@direction" },
@@ -54,7 +56,6 @@ const KWStrs = [_]PairKWStr{
 // All valid schema symbols
 const SymStrs = [_]PairSymStr{
     .{ .kind = .Colon, .char = ':' },
-    .{ .kind = .Comma, .char = ',' },
     .{ .kind = .LParen, .char = '(' },
     .{ .kind = .RParen, .char = ')' },
     .{ .kind = .LSquirly, .char = '{' },
@@ -65,6 +66,7 @@ const SymStrs = [_]PairSymStr{
 pub const Token = struct {
     kind: TokenKind,
     start: u16,
+    len: u16 = 1,
 };
 
 const Self = @This();
@@ -90,6 +92,7 @@ fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
         const token = Token{
             .kind = TokenKind.Ident,
             .start = self.curr_index - self.ident_len,
+            .len = self.ident_len,
         };
         try tokenArray.append(token);
 
@@ -121,6 +124,11 @@ pub fn tokenize(self: *Self) ![]Token {
 
             ':', '{', '}', ',', '(', ')' => {
                 try self.default_ident(&tokenArray);
+
+                if (c == ',') {
+                    break;
+                }
+
                 try tokenArray.append(Token{
                     .kind = inline for (SymStrs) |pair| {
                         if (c == pair.char) {

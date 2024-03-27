@@ -6,6 +6,7 @@ const testing = std.testing;
 
 const util = @import("util.zig");
 const Tokenizer = @import("tokenizer.zig");
+const Parser = @import("parser.zig");
 
 /// Returns the file name from the command-line arguments.
 fn parse_args() !?[]const u8 {
@@ -53,15 +54,15 @@ pub fn main() !void {
         return;
     }
 
-    log.debug("Reading File: {s}", .{file.?});
-
     const contents = try read_file(file.?);
     var tokenizer = try Tokenizer.create(contents);
 
     const tokens = try tokenizer.tokenize();
-    for (tokens) |token| {
-        log.debug("{}", .{token});
-    }
+
+    var parser = Parser.create(contents);
+    const tree = parser.parse(tokens) catch return;
+
+    log.debug("{}", .{tree});
 }
 
 test "tokenize" {
