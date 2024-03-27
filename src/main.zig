@@ -60,7 +60,7 @@ pub fn main() !void {
     const tokens = try tokenizer.tokenize();
 
     var parser = Parser.create(contents);
-    const tree = parser.parse(tokens) catch return;
+    const tree = try parser.parse(tokens);
 
     log.debug("{}", .{tree});
 }

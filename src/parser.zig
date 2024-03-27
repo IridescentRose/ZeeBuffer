@@ -82,6 +82,14 @@ fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
     return self.source[start..end];
 }
 
+fn print_source(self: *Self, token: Tokenizer.Token) void {
+    const location = self.get_source_location(token);
+    const source = self.get_source_string(token);
+
+    std.debug.print("{}:{}:\n", .{ location.line, location.column });
+    std.debug.print("{s}\n", .{source});
+}
+
 fn expect_next(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind) !void {
     if (self.curr_token + 1 >= tokens.len) {
         std.debug.print("Expected token of type {s}, but got EOF\n", .{@tagName(kind)});
@@ -110,11 +118,46 @@ pub fn create(source: []const u8) Self {
 }
 
 fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
-    _ = self;
-    _ = tokens;
     var attributes = std.ArrayList(Attribute).init(util.allocator());
 
-    // TODO: Parse attributes
+    while (self.curr_token < tokens.len) : (self.curr_token += 1) {
+        const token = tokens[self.curr_token];
+
+        // Check if we are at the end of the attributes
+        if (token.kind == .LSquirly) {
+            std.debug.print("Hit end!\n", .{});
+            break;
+        }
+
+        // Parse attribute
+        const kind = switch (token.kind) {
+            .KWEnum => AttributeType.Enum,
+            .KWIn => AttributeType.InEvent,
+            .KWOut => AttributeType.OutEvent,
+            .KWInOut => AttributeType.InOutEvent,
+            .KWCompressed => AttributeType.Compressed,
+            .KWEncrypted => AttributeType.Encrypted,
+            .KWStateEvent => AttributeType.State,
+            else => {
+                std.debug.print("Unexpected token {}\n", .{token});
+                self.print_source(token);
+                return error.UnexpectedToken;
+            },
+        };
+
+        // Consume attribute value
+        try self.expect_next(tokens, .LParen);
+        try self.expect_next(tokens, .Ident);
+
+        // Grab index
+        const index: Index = @intCast(self.curr_token);
+
+        // Consume closing parenthesis
+        try self.expect_next(tokens, .RParen);
+
+        // Add attribute
+        try attributes.append(.{ .type = kind, .value = index });
+    }
 
     return try attributes.toOwnedSlice();
 }
@@ -190,6 +233,8 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
                     }
                 }
             }
+
+            std.debug.print("Entry: {}\n", .{entry});
 
             try self.expect_next(tokens, .LSquirly);
             // TODO: Parse fields
