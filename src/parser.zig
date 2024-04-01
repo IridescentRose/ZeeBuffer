@@ -47,7 +47,7 @@ pub const Protocol = struct {
     endian: Endian = .Little,
     direction: Direction = .In,
     stateCount: u16 = 0,
-    entries: []Entry,
+    entries: std.ArrayList(Entry),
 };
 
 const Self = @This();
@@ -238,10 +238,8 @@ fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
 
 pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
     var proto: Protocol = .{
-        .entries = &[_]Entry{},
+        .entries = std.ArrayList(Entry).init(util.allocator()),
     };
-
-    var entries = std.ArrayList(Entry).init(util.allocator());
 
     while (self.curr_token < tokens.len) : (self.curr_token += 1) {
         const token = tokens[self.curr_token];
@@ -279,7 +277,6 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
 
             // Check if this is a state or packet
             if (token.kind == .KWState) {
-                proto.stateCount += 1;
                 entry.state = true;
             } else if (token.kind == .KWPacket) {
                 entry.packet = true;
@@ -312,7 +309,11 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
             entry.fields = try self.parse_fields(tokens);
             try self.expect(tokens, .RSquirly);
 
-            try entries.append(entry);
+            if (entry.state) {
+                proto.stateCount = @intCast(entry.fields.len);
+            }
+
+            try proto.entries.append(entry);
         } else if (token.kind == .EOF) {
             break;
         } else {
@@ -326,6 +327,5 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
         }
     }
 
-    proto.entries = try entries.toOwnedSlice();
     return proto;
 }
