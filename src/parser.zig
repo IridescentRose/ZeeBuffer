@@ -22,6 +22,7 @@ pub const Attribute = struct {
 pub const Field = struct {
     name: Index,
     kind: Index,
+    len_kind: u32 = 0,
 };
 
 pub const Entry = struct {
@@ -111,10 +112,63 @@ fn expect_next(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind
     self.curr_token += 1;
 }
 
+fn expect(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind) !void {
+    if (self.curr_token >= tokens.len) {
+        std.debug.print("Expected token of type {s}, but got EOF\n", .{@tagName(kind)});
+        return error.UnexpectedToken;
+    }
+
+    const token = tokens[self.curr_token];
+
+    if (token.kind != kind) {
+        const location = self.get_source_location(token);
+        const source = self.get_source_string(token);
+
+        std.debug.print("{}:{}: Expected token of type {s}, but got {s}\n", .{ location.line, location.column, @tagName(kind), @tagName(token.kind) });
+        std.debug.print("{s}\n", .{source});
+
+        return error.UnexpectedToken;
+    }
+}
+
 pub fn create(source: []const u8) Self {
     return Self{
         .source = source,
     };
+}
+
+fn parse_fields(self: *Self, tokens: []Tokenizer.Token) ![]Field {
+    var fields = std.ArrayList(Field).init(util.allocator());
+
+    try self.expect(tokens, .LSquirly);
+    self.curr_token += 1;
+
+    while (self.curr_token < tokens.len) : (self.curr_token += 1) {
+        // Check if we are at the end of the fields
+        if (tokens[self.curr_token].kind == .RSquirly) {
+            break;
+        }
+
+        // Parse field
+        try self.expect(tokens, .Ident);
+
+        // Grab field name
+        const name: Index = @intCast(self.curr_token);
+
+        // Consume colon
+        try self.expect_next(tokens, .Colon);
+
+        // Grab field type
+        try self.expect_next(tokens, .Ident);
+        const kind: Index = @intCast(self.curr_token);
+
+        // Check if next token is a parenthesis
+        if (tokens[self.curr_token + 1].kind == .LParen) {}
+
+        try fields.append(.{ .name = name, .kind = kind });
+    }
+
+    return try fields.toOwnedSlice();
 }
 
 fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
@@ -125,7 +179,6 @@ fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
 
         // Check if we are at the end of the attributes
         if (token.kind == .LSquirly) {
-            std.debug.print("Hit end!\n", .{});
             break;
         }
 
@@ -234,13 +287,12 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
                 }
             }
 
-            std.debug.print("Entry: {}\n", .{entry});
-
             try self.expect_next(tokens, .LSquirly);
-            // TODO: Parse fields
+            entry.fields = try self.parse_fields(tokens);
             try self.expect_next(tokens, .RSquirly);
 
             try entries.append(entry);
+            std.debug.print("Parsed entry {}\n", .{entry});
         } else {
             const location = self.get_source_location(token);
 
