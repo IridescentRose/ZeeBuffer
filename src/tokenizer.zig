@@ -126,7 +126,7 @@ pub fn tokenize(self: *Self) ![]Token {
                 try self.default_ident(&tokenArray);
 
                 if (c == ',') {
-                    break;
+                    continue;
                 }
 
                 try tokenArray.append(Token{
@@ -134,7 +134,7 @@ pub fn tokenize(self: *Self) ![]Token {
                         if (c == pair.char) {
                             break pair.kind;
                         }
-                    } else TokenKind.EOF,
+                    } else unreachable,
                     .start = self.curr_index,
                 });
             },

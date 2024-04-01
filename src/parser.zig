@@ -77,10 +77,14 @@ fn get_source_location(self: *Self, token: Tokenizer.Token) Location {
 }
 
 fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
-    const start = if (token.start - 16 < 0) 0 else token.start - 16;
-    const end = if (token.start + token.len + 16 > self.source.len) self.source.len else token.start + token.len + 16;
+    const WINDOW_SIZE = 64;
+    const start = if (token.start - WINDOW_SIZE < 0) 0 else token.start - WINDOW_SIZE;
+    const end = if (token.start + token.len + WINDOW_SIZE > self.source.len) self.source.len else token.start + token.len + WINDOW_SIZE;
 
-    return self.source[start..end];
+    const startNewLine = token.start - (std.mem.indexOf(u8, self.source[start..token.start], "\n") orelse 0);
+    const endNewLine = (std.mem.indexOf(u8, self.source[token.start..end], "\n") orelse 0) + token.start;
+
+    return self.source[startNewLine..endNewLine];
 }
 
 fn print_source(self: *Self, token: Tokenizer.Token) void {
@@ -159,11 +163,26 @@ fn parse_fields(self: *Self, tokens: []Tokenizer.Token) ![]Field {
         try self.expect_next(tokens, .Colon);
 
         // Grab field type
+
+        if (self.curr_token + 1 < tokens.len) {
+            if (tokens[self.curr_token + 1].kind == .KWEvent) {
+                try self.expect_next(tokens, .KWEvent);
+                const kind: Index = @intCast(self.curr_token);
+
+                // Consume opening paren
+                try self.expect_next(tokens, .LParen);
+                // Consume ident
+                try self.expect_next(tokens, .Ident);
+                // Consume closing paren
+                try self.expect_next(tokens, .RParen);
+
+                try fields.append(.{ .name = name, .kind = kind, .len_kind = 3 });
+                continue;
+            }
+        }
+
         try self.expect_next(tokens, .Ident);
         const kind: Index = @intCast(self.curr_token);
-
-        // Check if next token is a parenthesis
-        if (tokens[self.curr_token + 1].kind == .LParen) {}
 
         try fields.append(.{ .name = name, .kind = kind });
     }
@@ -173,12 +192,14 @@ fn parse_fields(self: *Self, tokens: []Tokenizer.Token) ![]Field {
 
 fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
     var attributes = std.ArrayList(Attribute).init(util.allocator());
+    self.curr_token += 1;
 
     while (self.curr_token < tokens.len) : (self.curr_token += 1) {
         const token = tokens[self.curr_token];
 
         // Check if we are at the end of the attributes
         if (token.kind == .LSquirly) {
+            self.curr_token -= 1;
             break;
         }
 
@@ -289,10 +310,11 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
 
             try self.expect_next(tokens, .LSquirly);
             entry.fields = try self.parse_fields(tokens);
-            try self.expect_next(tokens, .RSquirly);
+            try self.expect(tokens, .RSquirly);
 
             try entries.append(entry);
-            std.debug.print("Parsed entry {}\n", .{entry});
+        } else if (token.kind == .EOF) {
+            break;
         } else {
             const location = self.get_source_location(token);
 
