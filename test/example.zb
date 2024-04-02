@@ -68,7 +68,7 @@ environmentTick : In(2) State(Play) {
 # This packet only works in the handshake state
 handshake: Out(1) State(Handshake) {
     protocolVersion: varInt,
-    serverAddress: string,
+#    serverAddress: string,
     serverPort: u16,
     nextState: u8,
 }

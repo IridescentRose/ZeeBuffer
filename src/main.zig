@@ -7,6 +7,7 @@ const testing = std.testing;
 const util = @import("util.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Parser = @import("parser.zig");
+const SemanticAnalysis = @import("sema.zig");
 
 /// Returns the file name from the command-line arguments.
 fn parse_args() !?[]const u8 {
@@ -55,14 +56,15 @@ pub fn main() !void {
     }
 
     const contents = try read_file(file.?);
-    var tokenizer = try Tokenizer.create(contents);
 
+    var tokenizer = try Tokenizer.create(contents);
     const tokens = try tokenizer.tokenize();
 
     var parser = Parser.create(contents);
-    const tree = parser.parse(tokens) catch return;
+    var tree = parser.parse(tokens) catch return;
 
-    log.debug("{}", .{tree});
+    var sema = try SemanticAnalysis.create(contents, tokens);
+    sema.analyze(&tree) catch return;
 }
 
 test "tokenize" {

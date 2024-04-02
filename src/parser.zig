@@ -25,10 +25,15 @@ pub const Field = struct {
     len_kind: u32 = 0,
 };
 
+pub const Special = enum {
+    None,
+    State,
+    Packet,
+};
+
 pub const Entry = struct {
     name: Index,
-    packet: bool = false,
-    state: bool = false,
+    special: Special = .None,
     attributes: ?[]Attribute = null,
     fields: []Field,
 };
@@ -46,7 +51,6 @@ pub const Direction = enum {
 pub const Protocol = struct {
     endian: Endian = .Little,
     direction: Direction = .In,
-    stateCount: u16 = 0,
     entries: std.ArrayList(Entry),
 };
 
@@ -277,9 +281,9 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
 
             // Check if this is a state or packet
             if (token.kind == .KWState) {
-                entry.state = true;
+                entry.special = .State;
             } else if (token.kind == .KWPacket) {
-                entry.packet = true;
+                entry.special = .Packet;
             }
 
             // States cannot have attributes
@@ -308,10 +312,6 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
             try self.expect_next(tokens, .LSquirly);
             entry.fields = try self.parse_fields(tokens);
             try self.expect(tokens, .RSquirly);
-
-            if (entry.state) {
-                proto.stateCount = @intCast(entry.fields.len);
-            }
 
             try proto.entries.append(entry);
         } else if (token.kind == .EOF) {
