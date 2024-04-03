@@ -46,7 +46,7 @@ const base_symbols = [_]SymEntry{
     SymEntry{ .name = "f32", .type = SymType.BaseType, .value = @intFromEnum(BaseType.F32) },
     SymEntry{ .name = "f64", .type = SymType.BaseType, .value = @intFromEnum(BaseType.F64) },
     SymEntry{ .name = "bool", .type = SymType.BaseType, .value = @intFromEnum(BaseType.Bool) },
-    SymEntry{ .name = "varInt", .type = SymType.BaseType, .value = @intFromEnum(BaseType.VarInt) },
+    SymEntry{ .name = "VarInt", .type = SymType.BaseType, .value = @intFromEnum(BaseType.VarInt) },
 };
 
 const StructureTable = struct {
@@ -82,7 +82,7 @@ const StructureEntry = struct {
     type: StructureType,
 };
 
-const Structure = struct {
+pub const Structure = struct {
     name: []const u8,
     flag: StructureFlag,
     entries: []StructureEntry,
@@ -98,8 +98,9 @@ const EnumEntry = struct {
     value: u32,
 };
 
-const Enum = struct {
+pub const Enum = struct {
     name: []const u8,
+    type: Index,
     entries: []EnumEntry,
 };
 
@@ -108,6 +109,8 @@ struct_table: StructureTable,
 enum_table: EnumTable,
 source_contents: []const u8,
 token_list: []Tokenizer.Token,
+endian: Parser.Endian = .Little,
+direction: Parser.Direction = .In,
 
 const Self = @This();
 
@@ -138,7 +141,7 @@ fn token_text(self: *Self, token: Tokenizer.Token) []const u8 {
     return self.source_contents[token.start .. token.start + token.len];
 }
 
-fn token_text_idx(self: *Self, idx: Parser.Index) []const u8 {
+pub fn token_text_idx(self: *Self, idx: Parser.Index) []const u8 {
     return self.token_text(self.token_list[idx]);
 }
 
@@ -193,6 +196,13 @@ fn add_enum_entries(self: *Self, protocol: *Parser.Protocol) !void {
                 if (a.type == .Enum) {
                     var entries = std.ArrayList(EnumEntry).init(util.allocator());
 
+                    const valStr = self.token_text_idx(a.value);
+                    const eType = for (self.symbol_table.entries.items, 0..) |sym, i| {
+                        if (sym.type == .BaseType and std.mem.eql(u8, valStr, sym.name)) {
+                            break i;
+                        }
+                    } else @panic("Invalid enum backing type"); // TODO: Better error handling
+
                     for (e.fields) |f| {
                         try entries.append(.{
                             .name = self.token_text_idx(f.name),
@@ -206,6 +216,7 @@ fn add_enum_entries(self: *Self, protocol: *Parser.Protocol) !void {
 
                     try self.enum_table.entries.append(.{
                         .name = self.token_text_idx(e.name),
+                        .type = @intCast(eType),
                         .entries = try entries.toOwnedSlice(),
                     });
                 }
@@ -355,6 +366,10 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
 
 pub fn analyze(self: *Self, protocol: *Parser.Protocol) !void {
     std.debug.print("\rAnalyzing protocol...", .{});
+
+    self.endian = protocol.endian;
+    self.direction = protocol.direction;
+
     // Build enum / state symbol table to resolve
     try self.add_state_symbols(protocol);
     try self.add_struct_data_symbols(protocol);

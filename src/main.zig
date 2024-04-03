@@ -8,6 +8,7 @@ const util = @import("util.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Parser = @import("parser.zig");
 const SemanticAnalysis = @import("sema.zig");
+const CodeGen = @import("codegen.zig");
 
 /// Returns the file name from the command-line arguments.
 fn parse_args() !?[]const u8 {
@@ -85,6 +86,23 @@ pub fn main() !void {
     const f_elapsed = @as(f64, @floatFromInt(f_end - start)) / 1000_0000_0000.0;
     const f_locs = @as(f64, @floatFromInt(lines)) / f_elapsed / 1000_000.0;
     std.debug.print("\nFrontend: {d:.3} MLoC/s\n", .{f_locs});
+
+    // Code generation
+    var output_buffer = std.ArrayList(u8).init(util.allocator());
+    const ow = output_buffer.writer();
+
+    var bw = std.io.bufferedWriter(ow);
+    const writer = bw.writer();
+
+    var codegen = try CodeGen.create(sema);
+    try codegen.generate(writer);
+
+    try bw.flush();
+
+    var output_file = try fs.cwd().createFile("out.zig", .{});
+    defer output_file.close();
+
+    _ = try output_file.write(try output_buffer.toOwnedSlice());
 }
 
 test "tokenize" {

@@ -15,33 +15,33 @@
 
 # Base Packet
 @packet {
-    len: varInt,
-    data: protoData,
+    len: VarInt,
+    data: ProtoData,
 }
 
 # Packet in compressed mode
 @packet : Compressed(gzip) {
-    len: varInt,
-    uncompressedLen: varInt,
-    data: protoData,
+    len: VarInt,
+    uncompressedLen: VarInt,
+    data: ProtoData,
 }
 
 # Packet in compressed and encrypted mode
 @packet : Compressed(gzip), Encrypted(aes256) {
-    len: varInt,
-    uncompressedLen: varInt,
-    data: protoData, # Decompress then Decrypt
+    len: VarInt,
+    uncompressedLen: VarInt,
+    data: ProtoData, # Decompress then Decrypt
 }
 
 # This is just regular data
-vec3 {
+Vec3 {
     x: f64,
     y: f64,
     z: f64,
 }
 
 # This is an enum with backing type
-weatherType : Enum(u8) {
+WeatherType : Enum(u8) {
     Sunny: 1,
     Cloudy: 2,
     Rainy: 3,
@@ -49,32 +49,32 @@ weatherType : Enum(u8) {
 
 # This is an event with ID 1
 # This packet only works in the play state
-playerPositionUpdate : InOut(1) State(Play) {
+PlayerPositionUpdate : InOut(1) State(Play) {
     id: u32,
-    pos: vec3,
+    pos: Vec3,
 }
 
 # This is an event with ID 2
 # This packet only works in the play state
-environmentTick : In(2) State(Play) {
+EnvironmentTick : In(2) State(Play) {
     time: u64,
-    weather: weatherType,
+    weather: WeatherType,
 }
 
 # This is an event with ID 1
 # The conflict with the playerPositionUpdate event is resolved by
-# the state of the packet, since this packet is in the handshake state
+# the state of the packet, since this packet is in the Handshake state
 # and the playerPositionUpdate packet is in the play state
-# This packet only works in the handshake state
-handshake: Out(1) State(Handshake) {
-    protocolVersion: varInt,
+# This packet only works in the Handshake state
+Handshake: Out(1) State(Handshake) {
+    protocolVersion: VarInt,
 #    serverAddress: string,
     serverPort: u16,
     nextState: u8,
 }
 
 # This is the data segment of the packet
-protoData {
+ProtoData {
     kind: u8,
     event: Event(kind) # Match to kind
 }
