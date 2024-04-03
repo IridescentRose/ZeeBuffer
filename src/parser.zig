@@ -241,6 +241,7 @@ fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
 }
 
 pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
+    std.debug.print("\rParsing protocol...", .{});
     var proto: Protocol = .{
         .entries = std.ArrayList(Entry).init(util.allocator()),
     };

@@ -102,6 +102,7 @@ fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
 }
 
 pub fn tokenize(self: *Self) ![]Token {
+    std.debug.print("Tokenizing schema", .{});
     const allocator = util.allocator();
     var tokenArray = std.ArrayList(Token).init(allocator);
 
@@ -167,7 +168,6 @@ pub fn tokenize(self: *Self) ![]Token {
             }
         }
     }
-
     // Return the token array
     return try tokenArray.toOwnedSlice();
 }

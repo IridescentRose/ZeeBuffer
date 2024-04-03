@@ -5,10 +5,8 @@ const Parser = @import("parser.zig");
 
 const SymType = enum(u8) {
     State = 0, // State is a reserved enumeration
-    Enum = 1, // This is a global enumeration
-    Literal = 2, // This is an integer literal
-    UserType = 3, // This is a user-defined type
-    BaseType = 4, // This is a base type
+    UserType = 1, // This is a user-defined type
+    BaseType = 2, // This is a base type
 };
 
 const BaseType = enum(u32) {
@@ -48,7 +46,11 @@ const base_symbols = [_]SymEntry{
     SymEntry{ .name = "f32", .type = SymType.BaseType, .value = @intFromEnum(BaseType.F32) },
     SymEntry{ .name = "f64", .type = SymType.BaseType, .value = @intFromEnum(BaseType.F64) },
     SymEntry{ .name = "bool", .type = SymType.BaseType, .value = @intFromEnum(BaseType.Bool) },
-    SymEntry{ .name = "varint", .type = SymType.BaseType, .value = @intFromEnum(BaseType.VarInt) },
+    SymEntry{ .name = "varInt", .type = SymType.BaseType, .value = @intFromEnum(BaseType.VarInt) },
+};
+
+const StructureTable = struct {
+    entries: std.ArrayList(Structure),
 };
 
 const StructureFlag = packed struct(u8) {
@@ -59,13 +61,19 @@ const StructureFlag = packed struct(u8) {
     event: bool, // Is an Event
     packet: bool, // Is a Packet
     data: bool, // Data structure
-    reserved: u1, // Reserved
+    state_base: bool, // State base
 };
 
 const Index = u16;
 
+const StructureTypes = enum(u8) {
+    Base = 0,
+    User = 1,
+    Union = 2,
+};
+
 const StructureType = struct {
-    user: bool = false,
+    user: StructureTypes = .Base,
     index: Index, // If user is false, this is an index into the symtable, otherwise it is an index into the struct table
 };
 
@@ -78,10 +86,26 @@ const Structure = struct {
     name: []const u8,
     flag: StructureFlag,
     entries: []StructureEntry,
-    extra: [2]Index, // Index of compression or encryption types
+    state: i16 = -1,
+};
+
+const EnumTable = struct {
+    entries: std.ArrayList(Enum),
+};
+
+const EnumEntry = struct {
+    name: []const u8,
+    value: u32,
+};
+
+const Enum = struct {
+    name: []const u8,
+    entries: []EnumEntry,
 };
 
 symbol_table: SymTable,
+struct_table: StructureTable,
+enum_table: EnumTable,
 source_contents: []const u8,
 token_list: []Tokenizer.Token,
 
@@ -99,6 +123,12 @@ fn create_default_table() !SymTable {
 pub fn create(source: []const u8, tokens: []Tokenizer.Token) !Self {
     return Self{
         .symbol_table = try create_default_table(),
+        .struct_table = .{
+            .entries = std.ArrayList(Structure).init(util.allocator()),
+        },
+        .enum_table = .{
+            .entries = std.ArrayList(Enum).init(util.allocator()),
+        },
         .source_contents = source,
         .token_list = tokens,
     };
@@ -112,7 +142,7 @@ fn token_text_idx(self: *Self, idx: Parser.Index) []const u8 {
     return self.token_text(self.token_list[idx]);
 }
 
-fn add_state_enum(self: *Self, protocol: *Parser.Protocol) !void {
+fn add_state_symbols(self: *Self, protocol: *Parser.Protocol) !void {
     // Find the state entry
     var idx: ?usize = null;
     for (protocol.entries.items, 0..) |e, i| {
@@ -146,22 +176,26 @@ fn add_state_enum(self: *Self, protocol: *Parser.Protocol) !void {
     }
 }
 
-fn add_enums(self: *Self, protocol: *Parser.Protocol) !void {
-    var free_indices = std.ArrayList(usize).init(util.allocator());
-    defer free_indices.deinit();
+fn resolve_symbol(self: *Self, name: []const u8) !SymEntry {
+    for (self.symbol_table.entries.items) |e| {
+        if (std.mem.eql(u8, e.name, name)) {
+            return e;
+        }
+    }
 
-    for (protocol.entries.items, 0..) |e, i| {
+    return error.SymEntryNotFound;
+}
+
+fn add_enum_entries(self: *Self, protocol: *Parser.Protocol) !void {
+    for (protocol.entries.items) |e| {
         if (e.attributes) |attribs| {
             for (attribs) |a| {
                 if (a.type == .Enum) {
-                    // Entry is an enum
-                    try free_indices.append(i);
+                    var entries = std.ArrayList(EnumEntry).init(util.allocator());
 
-                    // Go through each field
                     for (e.fields) |f| {
-                        try self.symbol_table.entries.append(.{
+                        try entries.append(.{
                             .name = self.token_text_idx(f.name),
-                            .type = .Enum,
                             .value = try std.fmt.parseInt(
                                 u32,
                                 self.token_text_idx(f.kind),
@@ -169,36 +203,165 @@ fn add_enums(self: *Self, protocol: *Parser.Protocol) !void {
                             ),
                         });
                     }
+
+                    try self.enum_table.entries.append(.{
+                        .name = self.token_text_idx(e.name),
+                        .entries = try entries.toOwnedSlice(),
+                    });
                 }
             }
         }
     }
+}
 
-    var duplicate = std.ArrayList(Parser.Entry).init(util.allocator());
-    defer duplicate.deinit();
-
-    for (protocol.entries.items, 0..) |e, i| {
-        for (free_indices.items) |j| {
-            if (i == j) {
-                continue;
+fn add_struct_data_symbols(self: *Self, protocol: *Parser.Protocol) !void {
+    for (protocol.entries.items) |e| {
+        // Data
+        if (e.attributes) |attribs| {
+            var is_enum = false;
+            for (attribs) |a| {
+                if (a.type == .Enum) {
+                    is_enum = true;
+                    break;
+                }
             }
 
-            try duplicate.append(e);
+            if (!is_enum) {
+                continue;
+            }
         }
-    }
 
-    protocol.entries.clearAndFree();
-    protocol.entries = std.ArrayList(Parser.Entry).fromOwnedSlice(util.allocator(), try duplicate.toOwnedSlice());
+        try self.symbol_table.entries.append(.{
+            .name = self.token_text_idx(e.name),
+            .type = .UserType,
+        });
+    }
+}
+
+fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
+    for (protocol.entries.items) |e| {
+        var flag = StructureFlag{ .data = true, .state_base = true, .encrypted = false, .compressed = false, .in = false, .out = false, .event = false, .packet = false };
+        var state: i16 = -1;
+
+        var was_enum: bool = false;
+        if (e.attributes) |attribs| {
+            for (attribs) |a| {
+                switch (a.type) {
+                    .Compressed => flag.compressed = true, // TODO: Parse type
+                    .Encrypted => flag.encrypted = true, // TODO: Parse type
+                    .InEvent => {
+                        flag.in = true;
+                        flag.event = true;
+                    },
+                    .OutEvent => {
+                        flag.out = true;
+                        flag.event = true;
+                    },
+                    .InOutEvent => {
+                        flag.in = true;
+                        flag.out = true;
+                        flag.event = true;
+                    },
+                    .State => {
+                        flag.state_base = false;
+                        const value = self.token_text_idx(a.value);
+                        state = std.fmt.parseInt(i16, value, 0) catch blk: {
+                            // So we probably have a user-defined state, let's look it up
+                            const sym = try self.resolve_symbol(value);
+
+                            if (sym.type != .State) {
+                                @panic("Invalid state type"); // TODO: Better error handling
+                            } else {
+                                break :blk @intCast(sym.value);
+                            }
+                        };
+                    },
+                    .Enum => {
+                        was_enum = true;
+                        break;
+                    },
+                }
+            }
+        }
+
+        if (was_enum) {
+            continue;
+        }
+
+        if (e.special == .Packet) {
+            flag.packet = true;
+        }
+
+        if (flag.event) {
+            flag.data = false;
+        }
+
+        var entries = std.ArrayList(StructureEntry).init(util.allocator());
+
+        for (e.fields) |f| {
+            var user: StructureTypes = .Base;
+            var entry: SymEntry = undefined;
+            var index: usize = 0;
+
+            if (f.len_kind != 0) {
+                const name = self.token_text_idx(f.kind);
+                if (std.mem.eql(u8, name, "Event")) {
+                    user = .Union;
+                    index = f.kind + 2;
+                }
+            } else {
+                if (self.resolve_symbol(self.token_text_idx(f.kind))) |kind| {
+                    entry = kind;
+                    switch (kind.type) {
+                        .BaseType => {
+                            user = .Base;
+                        },
+                        .UserType => {
+                            user = .User;
+                        },
+                        else => @panic("Invalid type"),
+                    }
+                } else |_| {
+                    std.debug.print("Cannot find type: {s}\n", .{self.token_text_idx(f.kind)});
+                    @panic("Cannot find type");
+                }
+
+                index = for (self.symbol_table.entries.items, 0..) |ent, i| {
+                    if (std.meta.eql(ent, entry)) {
+                        break i;
+                    }
+                } else {
+                    @panic("Cannot find type");
+                };
+            }
+
+            try entries.append(StructureEntry{
+                .name = self.token_text_idx(f.name),
+                .type = .{
+                    .user = user,
+                    .index = @intCast(index),
+                },
+            });
+        }
+
+        try self.struct_table.entries.append(.{
+            .name = self.token_text_idx(e.name),
+            .flag = flag,
+            .entries = try entries.toOwnedSlice(),
+            .state = state,
+        });
+    }
 }
 
 pub fn analyze(self: *Self, protocol: *Parser.Protocol) !void {
-    std.debug.print("Analyzing Protocol...\n", .{});
-
+    std.debug.print("\rAnalyzing protocol...", .{});
     // Build enum / state symbol table to resolve
-    try self.add_state_enum(protocol);
-    try self.add_enums(protocol);
+    try self.add_state_symbols(protocol);
+    try self.add_struct_data_symbols(protocol);
 
-    // Build type symbol table
+    // Run through the protocol and add each struct to the struct table
+    try self.add_enum_entries(protocol);
+    try self.add_struct_entries(protocol);
 
-    // Resolve all fields
+    // If we've gotten here, we've successfully analyzed the protocol
 }

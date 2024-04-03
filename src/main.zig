@@ -45,9 +45,21 @@ fn read_file(path: []const u8) ![]const u8 {
     );
 }
 
+fn count_lines(contents: []const u8) u32 {
+    var lines: u32 = 1;
+    for (contents) |c| {
+        if (c == '\n') {
+            lines += 1;
+        }
+    }
+    return lines;
+}
+
 pub fn main() !void {
     util.init();
     defer util.deinit();
+
+    const start = std.time.nanoTimestamp();
 
     const file = try parse_args();
 
@@ -57,6 +69,8 @@ pub fn main() !void {
 
     const contents = try read_file(file.?);
 
+    const lines = count_lines(contents);
+
     var tokenizer = try Tokenizer.create(contents);
     const tokens = try tokenizer.tokenize();
 
@@ -64,7 +78,13 @@ pub fn main() !void {
     var tree = parser.parse(tokens) catch return;
 
     var sema = try SemanticAnalysis.create(contents, tokens);
-    sema.analyze(&tree) catch return;
+    try sema.analyze(&tree);
+
+    const f_end = std.time.nanoTimestamp();
+
+    const f_elapsed = @as(f64, @floatFromInt(f_end - start)) / 1000_0000_0000.0;
+    const f_locs = @as(f64, @floatFromInt(lines)) / f_elapsed / 1000_000.0;
+    std.debug.print("\nFrontend: {d:.3} MLoC/s\n", .{f_locs});
 }
 
 test "tokenize" {
