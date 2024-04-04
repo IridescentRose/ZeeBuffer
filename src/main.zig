@@ -103,6 +103,8 @@ pub fn main() !void {
     defer output_file.close();
 
     _ = try output_file.write(try output_buffer.toOwnedSlice());
+
+    std.debug.print("\n", .{});
 }
 
 test "tokenize" {

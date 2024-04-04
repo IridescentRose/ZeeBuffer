@@ -47,16 +47,24 @@ WeatherType : Enum(u8) {
     Rainy: 3,
 }
 
-# This is an event with ID 1
+# This is an event with ID 47
 # This packet only works in the play state
-PlayerPositionUpdate : InOut(1) State(Play) {
+PlayerPositionUpdate : Out(47) State(Play) {
+    id: u32,
+    pos: Vec3,
+    teleport: bool,
+}
+
+# This is an event with ID 47
+# This packet only works in the play state
+PlayerPositionUpdate : In(47) State(Play) {
     id: u32,
     pos: Vec3,
 }
 
 # This is an event with ID 2
 # This packet only works in the play state
-EnvironmentTick : In(2) State(Play) {
+EnvironmentTick : InOut(2) State(Play) {
     time: u64,
     weather: WeatherType,
 }

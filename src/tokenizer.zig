@@ -161,7 +161,7 @@ pub fn tokenize(self: *Self) ![]Token {
                     continue;
                 }
 
-                if (std.mem.eql(u8, self.source[token.start .. token.start + kwStr.str.len], kwStr.str)) {
+                if (std.mem.eql(u8, self.source[token.start .. token.start + token.len], kwStr.str)) {
                     token.kind = kwStr.kind;
                     break;
                 }

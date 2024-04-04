@@ -87,6 +87,7 @@ pub const Structure = struct {
     flag: StructureFlag,
     entries: []StructureEntry,
     state: i16 = -1,
+    event: i16 = -1,
 };
 
 const EnumTable = struct {
@@ -253,6 +254,7 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
     for (protocol.entries.items) |e| {
         var flag = StructureFlag{ .data = true, .state_base = true, .encrypted = false, .compressed = false, .in = false, .out = false, .event = false, .packet = false };
         var state: i16 = -1;
+        var event: i16 = -1;
 
         var was_enum: bool = false;
         if (e.attributes) |attribs| {
@@ -263,15 +265,18 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
                     .InEvent => {
                         flag.in = true;
                         flag.event = true;
+                        event = try std.fmt.parseInt(i16, self.token_text_idx(a.value), 0);
                     },
                     .OutEvent => {
                         flag.out = true;
                         flag.event = true;
+                        event = try std.fmt.parseInt(i16, self.token_text_idx(a.value), 0);
                     },
                     .InOutEvent => {
                         flag.in = true;
                         flag.out = true;
                         flag.event = true;
+                        event = try std.fmt.parseInt(i16, self.token_text_idx(a.value), 0);
                     },
                     .State => {
                         flag.state_base = false;
@@ -360,6 +365,7 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
             .flag = flag,
             .entries = try entries.toOwnedSlice(),
             .state = state,
+            .event = event,
         });
     }
 }
