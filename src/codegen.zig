@@ -97,7 +97,7 @@ pub fn generate(self: *Self, writer: anytype) !void {
     std.debug.print("\rGenerating code...", .{});
 
     try writer.print("const std = @import(\"std\");\n\n", .{});
-    try writer.print("pub const VarInt = usize;\n\n", .{});
+    try writer.print("pub const VarInt = u128;\n\n", .{});
     try writer.print("pub const EventData = [*]u8;\n\n", .{});
 
     // try writer.print(
@@ -191,109 +191,114 @@ pub fn generate(self: *Self, writer: anytype) !void {
     // Generate the handlers struct
     const endian_string = if (self.sema.endian == .Big) ".big" else ".little";
     try writer.print(
-        \\pub fn Protocol(reader: anytype, writer: anytype) type {{
-        \\    return struct {{
-        \\        state: ProtoState = @enumFromInt(0),
-        \\        compressed: bool = false,
-        \\        encrypted: bool = false,
-        \\        handlers: ProtoHandlers = ProtoHandlers{{}},
+        \\pub const Protocol = struct {{
+        \\    state: ProtoState = @enumFromInt(0),
+        \\    compressed: bool = false,
+        \\    encrypted: bool = false,
+        \\    handlers: ProtoHandlers = ProtoHandlers{{}},
         \\
-        \\        src_reader: @TypeOf(reader),
-        \\        src_writer: @TypeOf(writer),
+        \\    src_reader: std.io.AnyReader = undefined,
+        \\    src_writer: std.io.AnyWriter = undefined,
         \\
-        \\        const Self = @This();
+        \\    const Self = @This();
         \\
-        \\        pub fn init(self: *Self, handlers: ProtoHandlers) void {{
-        \\            self.handlers = handlers;
+        \\    pub fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
+        \\        return .{{ 
+        \\            .handlers = handlers,
+        \\            .src_reader = reader,
+        \\            .src_writer = writer,
+        \\        }};
+        \\    }}
+        \\
+        \\    pub fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
+        \\        if(self.compressed or self.encrypted) {{
+        \\            @panic("Compression and encryption not supported yet");  
         \\        }}
         \\
-        \\        pub fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
-        \\            if(self.compressed or self.encrypted) {{
-        \\                @panic("Compression and encryption not supported yet");  
-        \\            }}
-        \\
-        \\            // Read the packet len
-        \\            var packet: Packet = undefined;
+        \\        // Read the packet len
+        \\        var packet: Packet = undefined;
+        \\        
+        \\        if(std.mem.eql(u8, @typeName(@TypeOf(packet.len)), "VarInt")) {{
+        \\            packet.len = 0;
         \\            
-        \\            if(std.mem.eql(u8, @typeName(@TypeOf(packet.len)), "VarInt")) {{
-        \\                packet.len = 0;
-        \\                
-        \\                var b = try self.src_reader.readByte();
-        \\                while(b & 0x80) {{
-        \\                    packet.len |= (b & 0x7F) << 7;
-        \\                    packet.len <<= 7;
+        \\            var b = try self.src_reader.readByte();
+        \\            while(b & 0x80 != 0) {{
+        \\                packet.len |= (b & 0x7F) << 7;
+        \\                packet.len <<= 7;
         \\
-        \\                    b = try self.src_reader.readByte();
-        \\                }}
-        \\
-        \\               packet.len |= b;
-        \\            }} else {{
-        \\               packet.len = try self.src_reader.readInt(@TypeOf(packet.len), {s});
+        \\                b = try self.src_reader.readByte();
         \\            }}
         \\
-        \\            // Read the packet all into a buffer
-        \\            const packet_len : usize = @intCast(packet.len);
-        \\            const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
-        \\
-        \\            var fbstream = std.io.fixedBufferStream(buffer);
-        \\            const anyreader = fbstream.reader().any();
-        \\
-        \\            // Parse the packet
-        \\            packet.data = try self.parse_data(@TypeOf(packet.data), anyreader);
+        \\            packet.len |= b;
+        \\        }} else {{
+        \\           packet.len = try self.src_reader.readInt(@TypeOf(packet.len), {s});
         \\        }}
         \\
-        \\        fn parse_data(self: *Self, comptime T: type, buf_reader: std.io.AnyReader) !T {{
-        \\            var packet_data: T = undefined;
+        \\        // Read the packet all into a buffer
+        \\        const packet_len : usize = @intCast(packet.len);
+        \\        const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
         \\
-        \\            if(std.mem.eql(u8, @typeName(T), "VarInt")) {{
-        \\                packet_data = 0;
-        \\                
-        \\                var b = try buf_reader.readByte();
-        \\                while(b & 0x80) {{
-        \\                    packet_data |= (b & 0x7F) << 7;
-        \\                    packet_data <<= 7;
+        \\        var fbstream = std.io.fixedBufferStream(buffer);
+        \\        const anyreader = fbstream.reader().any();
         \\
-        \\                    b = try buf_reader.readByte();
+        \\        // Parse the packet
+        \\        packet.data = try self.parse_data(@TypeOf(packet.data), anyreader);
+        \\    }}
+        \\
+        \\    fn parse_data(self: *Self, comptime T: type, buf_reader: std.io.AnyReader) !T {{
+        \\        @compileLog("Parsing data of type: {{}}", @typeName(T));
+        \\
+        \\        switch(@typeInfo(T)) {{
+        \\            .Bool => {{
+        \\                return try buf_reader.readByte() != 0;
+        \\            }},
+        \\            .Int => |info| {{
+        \\                if(info.bits == 128) {{
+        \\                    var value: u128 = 0;
+        \\           
+        \\                    var b = try buf_reader.readByte();
+        \\                    while(b & 0x80 != 0) {{
+        \\                        value |= (b & 0x7F) << 7;
+        \\                        value <<= 7;
+        \\                        b = try buf_reader.readByte();
+        \\                    }}
+        \\
+        \\                    value |= b;
+        \\                    return value;
+        \\                }} else {{
+        \\                    return try buf_reader.readInt(T, {s});
         \\                }}
-        \\                packet_data |= b;
+        \\            }},
+        \\            .Float => |info| {{
+        \\                if(info.bits == 32) {{
+        \\                    return @bitCast(try buf_reader.readInt(u32, {s}));
+        \\                }} else if(info.bits == 64) {{
+        \\                    return @bitCast(try buf_reader.readInt(u64, {s}));
+        \\                }} else {{
+        \\                    @compileError("Unsupported float size");
+        \\                }}
+        \\            }},
+        \\            .Enum => |info| {{
+        \\                return @enumFromInt(try buf_reader.readInt(info.tag_type, {s}));
+        \\            }},
+        \\            .Struct => |info| {{
+        \\                var packet_data : T = undefined;
+        \\                inline for(info.fields) |field| {{
+        \\                    @field(packet_data, field.name) = try self.parse_data(field.type, buf_reader);
+        \\                }}
         \\                return packet_data;
-        \\            }}
-        \\
-        \\            if(std.mem.eql(u8, @typeName(T), "EventData")) {{
-        \\                //TODO: Implement event data parsing
-        \\            }}
-        \\
-        \\            switch(@typeInfo(T)) {{
-        \\                .Bool => {{
-        \\                    packet_data = try buf_reader.readByte() != 0;
-        \\                }},
-        \\                .Int => {{
-        \\                    packet_data = try buf_reader.readInt(T, {s});
-        \\                }},
-        \\                .Float => |info| {{
-        \\                    if(info.bits == 32) {{
-        \\                        packet_data = @bitCast(try buf_reader.readInt(u32, {s}));
-        \\                    }} else if(info.bits == 64) {{
-        \\                        packet_data = @bitCast(try buf_reader.readInt(u64, {s}));
-        \\                    }} else {{
-        \\                        @compileError("Unsupported float size");
-        \\                    }}
-        \\                }},
-        \\                .Enum => |info| {{
-        \\                    packet_data = @enumFromInt(try buf_reader.readInt(info.tag_type, {s}));
-        \\                }},
-        \\                .Struct => |info| {{
-        \\                    for(info.fields) |field| {{
-        \\                        @field(packet_data, field.name) = try self.parse_data(field.type, buf_reader);
-        \\                    }}
-        \\                }},
-        \\                else => @compileError("Unsupported type for packet data"),
-        \\            }}
-        \\
-        \\            return packet_data;
+        \\            }},
+        \\            .Pointer => |info| {{
+        \\                if(info.size == .Many) {{
+        \\                    @compileLog("Parsing pointer of type: {{}}", @typeName(T));
+        \\                }} else {{
+        \\                    @compileError("Unsupported pointer size");
+        \\                }}
+        \\            }},
+        \\            else => @compileError("Unsupported type for packet data"),
         \\        }}
-        \\    }};
+        \\    }}
         \\
     , .{ endian_string, endian_string, endian_string, endian_string, endian_string });
-    try writer.print("}}\n", .{});
+    try writer.print("}};\n", .{});
 }

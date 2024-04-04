@@ -83,6 +83,6 @@ Handshake: Out(1) State(Handshake) {
 
 # This is the data segment of the packet
 ProtoData {
-    kind: u8,
+    kind: VarInt,
     event: Event(kind) # Match to kind
 }

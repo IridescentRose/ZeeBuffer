@@ -10,8 +10,11 @@ const Parser = @import("parser.zig");
 const SemanticAnalysis = @import("sema.zig");
 const CodeGen = @import("codegen.zig");
 
+var in_file: ?[]const u8 = null;
+var out_file: ?[]const u8 = null;
+
 /// Returns the file name from the command-line arguments.
-fn parse_args() !?[]const u8 {
+fn parse_args() !?void {
     // Get the command-line arguments.
     const allocator = util.allocator();
     var arg_it = try std.process.argsWithAllocator(allocator);
@@ -21,17 +24,26 @@ fn parse_args() !?[]const u8 {
     _ = arg_it.skip();
 
     // First argument is the file.
-    const file = arg_it.next();
+    in_file = arg_it.next();
 
     // If no file was provided, print usage and return.
-    if (file == null) {
-        log.err("Usage: zbc <filename>", .{});
+    if (in_file == null) {
+        log.err("Usage: zbc <infile> <outfile>", .{});
+        return null;
+    }
+
+    // Second argument is the output.
+    out_file = arg_it.next();
+
+    // If no file was provided, print usage and return.
+    if (out_file == null) {
+        log.err("Usage: zbc <infile> <outfile>", .{});
         return null;
     }
 
     // Not sure if duping is necessary, but arg_it.deinit()
     // should free the memory making it possibly invalid.
-    return try allocator.dupe(u8, file.?);
+    return;
 }
 
 // Reads the file bytes into a buffer
@@ -62,13 +74,13 @@ pub fn main() !void {
 
     const start = std.time.nanoTimestamp();
 
-    const file = try parse_args();
+    const result = try parse_args();
 
-    if (file == null) {
+    if (result == null) {
         return;
     }
 
-    const contents = try read_file(file.?);
+    const contents = try read_file(in_file.?);
 
     const lines = count_lines(contents);
 
@@ -99,7 +111,7 @@ pub fn main() !void {
 
     try bw.flush();
 
-    var output_file = try fs.cwd().createFile("out.zig", .{});
+    var output_file = try fs.cwd().createFile(out_file.?, .{});
     defer output_file.close();
 
     _ = try output_file.write(try output_buffer.toOwnedSlice());
