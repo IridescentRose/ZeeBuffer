@@ -1,7 +1,8 @@
 const std = @import("std");
 const util = @import("util.zig");
-const Tokenizer = @import("tokenizer.zig");
-const Parser = @import("parser.zig");
+const Tokenizer = @import("Tokenizer.zig");
+const Parser = @import("Parser.zig");
+const SourceObject = @import("SourceObject.zig");
 
 const SymType = enum(u8) {
     State = 0, // State is a reserved enumeration
@@ -108,8 +109,7 @@ pub const Enum = struct {
 symbol_table: SymTable,
 struct_table: StructureTable,
 enum_table: EnumTable,
-source_contents: []const u8,
-token_list: []Tokenizer.Token,
+source: SourceObject,
 endian: Parser.Endian = .Little,
 direction: Parser.Direction = .In,
 
@@ -124,7 +124,7 @@ fn create_default_table() !SymTable {
     };
 }
 
-pub fn create(source: []const u8, tokens: []Tokenizer.Token) !Self {
+pub fn create(source: SourceObject) !Self {
     return Self{
         .symbol_table = try create_default_table(),
         .struct_table = .{
@@ -133,20 +133,11 @@ pub fn create(source: []const u8, tokens: []Tokenizer.Token) !Self {
         .enum_table = .{
             .entries = std.ArrayList(Enum).init(util.allocator()),
         },
-        .source_contents = source,
-        .token_list = tokens,
+        .source = source,
     };
 }
 
-fn token_text(self: *Self, token: Tokenizer.Token) []const u8 {
-    return self.source_contents[token.start .. token.start + token.len];
-}
-
-pub fn token_text_idx(self: *Self, idx: Parser.Index) []const u8 {
-    return self.token_text(self.token_list[idx]);
-}
-
-fn add_state_symbols(self: *Self, protocol: *Parser.Protocol) !void {
+fn add_state_symbols(self: *Self, protocol: Parser.Protocol) !void {
     // Find the state entry
     var idx: ?usize = null;
     for (protocol.entries.items, 0..) |e, i| {
@@ -164,16 +155,17 @@ fn add_state_symbols(self: *Self, protocol: *Parser.Protocol) !void {
         @panic("State is not defined!");
     }
 
-    const e = protocol.entries.swapRemove(idx.?);
+    //const e = protocol.entries.swapRemove(idx.?);
+    const e = protocol.entries.items[idx.?];
 
     // Add the state symbols
     for (e.fields) |f| {
         try self.symbol_table.entries.append(.{
-            .name = self.token_text_idx(f.name),
+            .name = self.source.token_text_idx(f.name),
             .type = .State,
             .value = try std.fmt.parseInt(
                 u32,
-                self.token_text_idx(f.kind),
+                self.source.token_text_idx(f.kind),
                 0,
             ),
         });
@@ -190,14 +182,14 @@ fn resolve_symbol(self: *Self, name: []const u8) !SymEntry {
     return error.SymEntryNotFound;
 }
 
-fn add_enum_entries(self: *Self, protocol: *Parser.Protocol) !void {
+fn add_enum_entries(self: *Self, protocol: Parser.Protocol) !void {
     for (protocol.entries.items) |e| {
         if (e.attributes) |attribs| {
             for (attribs) |a| {
                 if (a.type == .Enum) {
                     var entries = std.ArrayList(EnumEntry).init(util.allocator());
 
-                    const valStr = self.token_text_idx(a.value);
+                    const valStr = self.source.token_text_idx(a.value);
                     const eType = for (self.symbol_table.entries.items, 0..) |sym, i| {
                         if (sym.type == .BaseType and std.mem.eql(u8, valStr, sym.name)) {
                             break i;
@@ -206,17 +198,17 @@ fn add_enum_entries(self: *Self, protocol: *Parser.Protocol) !void {
 
                     for (e.fields) |f| {
                         try entries.append(.{
-                            .name = self.token_text_idx(f.name),
+                            .name = self.source.token_text_idx(f.name),
                             .value = try std.fmt.parseInt(
                                 u32,
-                                self.token_text_idx(f.kind),
+                                self.source.token_text_idx(f.kind),
                                 0,
                             ),
                         });
                     }
 
                     try self.enum_table.entries.append(.{
-                        .name = self.token_text_idx(e.name),
+                        .name = self.source.token_text_idx(e.name),
                         .type = @intCast(eType),
                         .entries = try entries.toOwnedSlice(),
                     });
@@ -226,7 +218,7 @@ fn add_enum_entries(self: *Self, protocol: *Parser.Protocol) !void {
     }
 }
 
-fn add_struct_data_symbols(self: *Self, protocol: *Parser.Protocol) !void {
+fn add_struct_data_symbols(self: *Self, protocol: Parser.Protocol) !void {
     for (protocol.entries.items) |e| {
         // Data
         if (e.attributes) |attribs| {
@@ -244,14 +236,18 @@ fn add_struct_data_symbols(self: *Self, protocol: *Parser.Protocol) !void {
         }
 
         try self.symbol_table.entries.append(.{
-            .name = self.token_text_idx(e.name),
+            .name = self.source.token_text_idx(e.name),
             .type = .UserType,
         });
     }
 }
 
-fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
+fn add_struct_entries(self: *Self, protocol: Parser.Protocol) !void {
     for (protocol.entries.items) |e| {
+        if (e.special == .State) {
+            continue;
+        }
+
         var flag = StructureFlag{ .data = true, .state_base = true, .encrypted = false, .compressed = false, .in = false, .out = false, .event = false, .packet = false };
         var state: i16 = -1;
         var event: i16 = -1;
@@ -265,22 +261,22 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
                     .InEvent => {
                         flag.in = true;
                         flag.event = true;
-                        event = try std.fmt.parseInt(i16, self.token_text_idx(a.value), 0);
+                        event = try std.fmt.parseInt(i16, self.source.token_text_idx(a.value), 0);
                     },
                     .OutEvent => {
                         flag.out = true;
                         flag.event = true;
-                        event = try std.fmt.parseInt(i16, self.token_text_idx(a.value), 0);
+                        event = try std.fmt.parseInt(i16, self.source.token_text_idx(a.value), 0);
                     },
                     .InOutEvent => {
                         flag.in = true;
                         flag.out = true;
                         flag.event = true;
-                        event = try std.fmt.parseInt(i16, self.token_text_idx(a.value), 0);
+                        event = try std.fmt.parseInt(i16, self.source.token_text_idx(a.value), 0);
                     },
                     .State => {
                         flag.state_base = false;
-                        const value = self.token_text_idx(a.value);
+                        const value = self.source.token_text_idx(a.value);
                         state = std.fmt.parseInt(i16, value, 0) catch blk: {
                             // So we probably have a user-defined state, let's look it up
                             const sym = try self.resolve_symbol(value);
@@ -320,13 +316,13 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
             var index: usize = 0;
 
             if (f.len_kind != 0) {
-                const name = self.token_text_idx(f.kind);
+                const name = self.source.token_text_idx(f.kind);
                 if (std.mem.eql(u8, name, "Event")) {
                     user = .Union;
                     index = f.kind + 2;
                 }
             } else {
-                if (self.resolve_symbol(self.token_text_idx(f.kind))) |kind| {
+                if (self.resolve_symbol(self.source.token_text_idx(f.kind))) |kind| {
                     entry = kind;
                     switch (kind.type) {
                         .BaseType => {
@@ -338,7 +334,7 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
                         else => @panic("Invalid type"),
                     }
                 } else |_| {
-                    std.debug.print("Cannot find type: {s}\n", .{self.token_text_idx(f.kind)});
+                    std.debug.print("Cannot find type: {s}\n", .{self.source.token_text_idx(f.kind)});
                     @panic("Cannot find type");
                 }
 
@@ -352,7 +348,7 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
             }
 
             try entries.append(StructureEntry{
-                .name = self.token_text_idx(f.name),
+                .name = self.source.token_text_idx(f.name),
                 .type = .{
                     .user = user,
                     .index = @intCast(index),
@@ -361,7 +357,7 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
         }
 
         try self.struct_table.entries.append(.{
-            .name = self.token_text_idx(e.name),
+            .name = self.source.token_text_idx(e.name),
             .flag = flag,
             .entries = try entries.toOwnedSlice(),
             .state = state,
@@ -370,7 +366,7 @@ fn add_struct_entries(self: *Self, protocol: *Parser.Protocol) !void {
     }
 }
 
-pub fn analyze(self: *Self, protocol: *Parser.Protocol) !void {
+pub fn analyze(self: *Self, protocol: Parser.Protocol) !void {
     std.debug.print("\rAnalyzing protocol...", .{});
 
     self.endian = protocol.endian;

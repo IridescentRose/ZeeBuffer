@@ -89,12 +89,11 @@ pub fn create(source: []const u8) !Self {
 // Check if we are in an identifier and if so, add it to the token array
 fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
     if (self.in_ident and self.ident_len > 0) {
-        const token = Token{
+        try tokenArray.append(.{
             .kind = TokenKind.Ident,
             .start = self.curr_index - self.ident_len,
             .len = self.ident_len,
-        };
-        try tokenArray.append(token);
+        });
 
         self.in_ident = false;
         self.ident_len = 0;
@@ -103,17 +102,17 @@ fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
 
 pub fn tokenize(self: *Self) ![]Token {
     std.debug.print("Tokenizing schema", .{});
-    const allocator = util.allocator();
-    var tokenArray = std.ArrayList(Token).init(allocator);
+    var tokenArray = std.ArrayList(Token).init(util.allocator());
 
     while (self.curr_index < self.source.len) : (self.curr_index += 1) {
-        const c = self.source[self.curr_index];
+        switch (self.source[self.curr_index]) {
 
-        switch (c) {
+            // New lines, spaces, tabs, and carriage returns
             ' ', '\n', '\t', '\r' => {
                 try self.default_ident(&tokenArray);
             },
 
+            // Comments
             '#' => {
                 try self.default_ident(&tokenArray);
                 while (self.curr_index < self.source.len) : (self.curr_index += 1) {
@@ -123,10 +122,11 @@ pub fn tokenize(self: *Self) ![]Token {
                 }
             },
 
-            ':', '{', '}', ',', '(', ')' => {
+            // Symbols
+            ':', '{', '}', ',', '(', ')' => |c| {
                 try self.default_ident(&tokenArray);
 
-                if (c == ',') {
+                if (c == ',') { // Skip commas
                     continue;
                 }
 
@@ -135,17 +135,19 @@ pub fn tokenize(self: *Self) ![]Token {
                         if (c == pair.char) {
                             break pair.kind;
                         }
-                    } else unreachable,
+                    } else unreachable, // This can't happen
                     .start = self.curr_index,
                 });
             },
 
+            // Identifiers
             else => {
                 self.in_ident = true;
                 self.ident_len += 1;
             },
         }
     }
+
     // Add the last identifier & EOF
     try self.default_ident(&tokenArray);
     try tokenArray.append(Token{
@@ -157,10 +159,6 @@ pub fn tokenize(self: *Self) ![]Token {
     for (tokenArray.items) |*token| {
         if (token.kind == TokenKind.Ident) {
             for (KWStrs) |kwStr| {
-                if (token.start + kwStr.str.len > self.source.len) {
-                    continue;
-                }
-
                 if (std.mem.eql(u8, self.source[token.start .. token.start + token.len], kwStr.str)) {
                     token.kind = kwStr.kind;
                     break;

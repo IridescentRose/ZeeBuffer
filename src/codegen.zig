@@ -159,29 +159,6 @@ pub fn generate(self: *Self, writer: anytype) !void {
     }
     try writer.print("}};\n\n", .{});
 
-    // Now make the enums per each state that reference the indices above
-    for (state_struct_array.items) |state_array| {
-        try writer.print("pub const ProtoPacket{s}In = enum(u16) {{\n", .{state_array.state.name});
-
-        for (state_array.entries) |f| {
-            if (std.mem.containsAtLeast(u8, f.name, 1, "P_In")) {
-                try writer.print("    {s} = {d},\n", .{ f.name, f.value });
-            }
-        }
-
-        try writer.print("}};\n\n", .{});
-
-        try writer.print("pub const ProtoPacket{s}Out = enum(u16) {{\n", .{state_array.state.name});
-
-        for (state_array.entries) |f| {
-            if (std.mem.containsAtLeast(u8, f.name, 1, "P_Out") or std.mem.containsAtLeast(u8, f.name, 1, "P_InOut")) {
-                try writer.print("    {s} = {d},\n", .{ f.name, f.value });
-            }
-        }
-
-        try writer.print("}};\n\n", .{});
-    }
-
     // Generate the handlers struct
     const endian_string = if (self.sema.endian == .Big) ".big" else ".little";
 
@@ -189,7 +166,7 @@ pub fn generate(self: *Self, writer: anytype) !void {
     const packet_idname = for (self.sema.struct_table.entries.items) |entry| {
         const found: ?[]const u8 = for (entry.entries) |f| {
             if (f.type.user == .Union) {
-                break self.sema.token_text_idx(f.type.index);
+                break self.sema.source.token_text_idx(f.type.index);
             }
         } else null;
 

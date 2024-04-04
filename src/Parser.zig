@@ -1,6 +1,7 @@
 const std = @import("std");
 const util = @import("util.zig");
-const Tokenizer = @import("tokenizer.zig");
+const SourceObject = @import("SourceObject.zig");
+const Tokenizer = @import("Tokenizer.zig");
 
 pub const Index = u16;
 
@@ -55,51 +56,10 @@ pub const Protocol = struct {
 };
 
 const Self = @This();
-source: []const u8 = undefined,
+source: SourceObject,
 curr_token: usize = 0,
 
-const Location = struct {
-    line: u32,
-    column: u32,
-};
-
-fn get_source_location(self: *Self, token: Tokenizer.Token) Location {
-    var line: u32 = 1;
-    var column: u32 = 1;
-
-    var i: usize = 0;
-    while (i < token.start) : (i += 1) {
-        if (self.source[i] == '\n') {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
-    }
-
-    return .{ .line = line, .column = column };
-}
-
-fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
-    const WINDOW_SIZE = 64;
-    const start = if (token.start - WINDOW_SIZE < 0) 0 else token.start - WINDOW_SIZE;
-    const end = if (token.start + token.len + WINDOW_SIZE > self.source.len) self.source.len else token.start + token.len + WINDOW_SIZE;
-
-    const startNewLine = token.start - (std.mem.indexOf(u8, self.source[start..token.start], "\n") orelse 0);
-    const endNewLine = (std.mem.indexOf(u8, self.source[token.start..end], "\n") orelse 0) + token.start;
-
-    return self.source[startNewLine..endNewLine];
-}
-
-fn print_source(self: *Self, token: Tokenizer.Token) void {
-    const location = self.get_source_location(token);
-    const source = self.get_source_string(token);
-
-    std.debug.print("{}:{}:\n", .{ location.line, location.column });
-    std.debug.print("{s}\n", .{source});
-}
-
-fn expect_next(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind) !void {
+fn expect_next(self: *Self, tokens: []const Tokenizer.Token, kind: Tokenizer.TokenKind) !void {
     if (self.curr_token + 1 >= tokens.len) {
         std.debug.print("Expected token of type {s}, but got EOF\n", .{@tagName(kind)});
         return error.UnexpectedToken;
@@ -108,8 +68,8 @@ fn expect_next(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind
     const token = tokens[self.curr_token + 1];
 
     if (token.kind != kind) {
-        const location = self.get_source_location(token);
-        const source = self.get_source_string(token);
+        const location = self.source.get_source_location(token);
+        const source = self.source.get_source_string(token);
 
         std.debug.print("{}:{}: Expected token of type {s}, but got {s}\n", .{ location.line, location.column, @tagName(kind), @tagName(token.kind) });
         std.debug.print("{s}\n", .{source});
@@ -120,7 +80,7 @@ fn expect_next(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind
     self.curr_token += 1;
 }
 
-fn expect(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind) !void {
+fn expect(self: *Self, tokens: []const Tokenizer.Token, kind: Tokenizer.TokenKind) !void {
     if (self.curr_token >= tokens.len) {
         std.debug.print("Expected token of type {s}, but got EOF\n", .{@tagName(kind)});
         return error.UnexpectedToken;
@@ -129,8 +89,8 @@ fn expect(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind) !vo
     const token = tokens[self.curr_token];
 
     if (token.kind != kind) {
-        const location = self.get_source_location(token);
-        const source = self.get_source_string(token);
+        const location = self.source.get_source_location(token);
+        const source = self.source.get_source_string(token);
 
         std.debug.print("{}:{}: Expected token of type {s}, but got {s}\n", .{ location.line, location.column, @tagName(kind), @tagName(token.kind) });
         std.debug.print("{s}\n", .{source});
@@ -139,13 +99,13 @@ fn expect(self: *Self, tokens: []Tokenizer.Token, kind: Tokenizer.TokenKind) !vo
     }
 }
 
-pub fn create(source: []const u8) Self {
+pub fn init(source: SourceObject) Self {
     return Self{
         .source = source,
     };
 }
 
-fn parse_fields(self: *Self, tokens: []Tokenizer.Token) ![]Field {
+fn parse_fields(self: *Self, tokens: []const Tokenizer.Token) ![]Field {
     var fields = std.ArrayList(Field).init(util.allocator());
 
     try self.expect(tokens, .LSquirly);
@@ -194,7 +154,7 @@ fn parse_fields(self: *Self, tokens: []Tokenizer.Token) ![]Field {
     return try fields.toOwnedSlice();
 }
 
-fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
+fn parse_attributes(self: *Self, tokens: []const Tokenizer.Token) ![]Attribute {
     var attributes = std.ArrayList(Attribute).init(util.allocator());
     self.curr_token += 1;
 
@@ -218,7 +178,7 @@ fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
             .KWStateEvent => AttributeType.State,
             else => {
                 std.debug.print("Unexpected token {}\n", .{token});
-                self.print_source(token);
+                self.source.print_source(token);
                 return error.UnexpectedToken;
             },
         };
@@ -240,12 +200,13 @@ fn parse_attributes(self: *Self, tokens: []Tokenizer.Token) ![]Attribute {
     return try attributes.toOwnedSlice();
 }
 
-pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
+pub fn parse(self: *Self) !Protocol {
     std.debug.print("\rParsing protocol...", .{});
     var proto: Protocol = .{
         .entries = std.ArrayList(Entry).init(util.allocator()),
     };
 
+    const tokens = self.source.tokens;
     while (self.curr_token < tokens.len) : (self.curr_token += 1) {
         const token = tokens[self.curr_token];
 
@@ -254,24 +215,24 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
 
             // Grab next token
             const ident = tokens[self.curr_token];
-            if (std.mem.eql(u8, self.source[ident.start .. ident.start + ident.len], "little")) {
+            if (std.mem.eql(u8, self.source.token_text(ident), "little")) {
                 proto.endian = .Little;
-            } else if (std.mem.eql(u8, self.source[ident.start .. ident.start + ident.len], "big")) {
+            } else if (std.mem.eql(u8, self.source.token_text(ident), "big")) {
                 proto.endian = .Big;
             } else {
-                std.debug.print("Expected 'little' or 'big' after '@endian', but got {s}\n", .{self.get_source_string(ident)});
+                std.debug.print("Expected 'little' or 'big' after '@endian', but got {s}\n", .{self.source.get_source_string(ident)});
                 return error.InvalidEndian;
             }
         } else if (token.kind == .KWDirection) { // Set direction
             try self.expect_next(tokens, .Ident);
 
             const ident = tokens[self.curr_token];
-            if (std.mem.eql(u8, self.source[ident.start .. ident.start + ident.len], "in")) {
+            if (std.mem.eql(u8, self.source.token_text(ident), "in")) {
                 proto.direction = .In;
-            } else if (std.mem.eql(u8, self.source[ident.start .. ident.start + ident.len], "out")) {
+            } else if (std.mem.eql(u8, self.source.token_text(ident), "out")) {
                 proto.direction = .Out;
             } else {
-                std.debug.print("Expected 'in' or 'out' after '@direction', but got {s}\n", .{self.get_source_string(ident)});
+                std.debug.print("Expected 'in' or 'out' after '@direction', but got {s}\n", .{self.source.get_source_string(ident)});
                 return error.InvalidDirection;
             }
         } else if (token.kind == .KWState or token.kind == .KWPacket or token.kind == .Ident) { // Entries
@@ -318,7 +279,7 @@ pub fn parse(self: *Self, tokens: []Tokenizer.Token) !Protocol {
         } else if (token.kind == .EOF) {
             break;
         } else {
-            const location = self.get_source_location(token);
+            const location = self.source.get_source_location(token);
 
             std.debug.print("Unexpected token {}\n", .{token});
             std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
