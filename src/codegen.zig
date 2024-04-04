@@ -7,7 +7,16 @@ const StateFields = struct {
     value: u16,
 };
 
-const StructFields = StateFields;
+const StructFields = struct {
+    name: []const u8,
+    value: u16,
+    oname: []const u8,
+};
+
+const StateStructPair = struct {
+    state: StateFields,
+    entries: []StructFields,
+};
 
 sema: Sema,
 
@@ -100,23 +109,6 @@ pub fn generate(self: *Self, writer: anytype) !void {
     try writer.print("pub const VarInt = u128;\n\n", .{});
     try writer.print("pub const EventData = [*]u8;\n\n", .{});
 
-    // try writer.print(
-    //     \\pub const Endian = enum {{
-    //     \\    Little,
-    //     \\    Big,
-    //     \\}};
-    //     \\
-    //     \\pub const Direction = enum {{
-    //     \\    In,
-    //     \\    Out,
-    //     \\}};
-    //     \\
-    //     \\
-    // , .{});
-
-    // try writer.print("pub const proto_endian: Endian = .{s};\n\n", .{@tagName(self.sema.endian)});
-    // try writer.print("pub const proto_direction: Direction = .{s};\n\n", .{@tagName(self.sema.direction)});
-
     var state_fields = std.ArrayList(StateFields).init(util.allocator());
     defer state_fields.deinit();
 
@@ -138,7 +130,7 @@ pub fn generate(self: *Self, writer: anytype) !void {
         try self.print_struct(writer, e);
     }
 
-    var state_array_structs = std.ArrayList(std.ArrayList(StructFields)).init(util.allocator());
+    var state_struct_array = std.ArrayList(StateStructPair).init(util.allocator());
     try writer.print("pub const ProtoHandlers = struct {{\n", .{});
     for (state_fields.items) |state| {
         var state_array = std.ArrayList(StructFields).init(util.allocator());
@@ -150,24 +142,28 @@ pub fn generate(self: *Self, writer: anytype) !void {
                     const name = try std.fmt.allocPrint(util.allocator(), "{s}{s}{s}", .{ inout, e.name, state.name });
                     const new_name = try std.fmt.allocPrint(util.allocator(), "P_{s}", .{name});
 
-                    try writer.print("   {s}_handler: ?*const fn (event: *{s}) anyerror!void = null,\n", .{ name, name });
+                    try writer.print("   {s}_handler: ?*const fn (ctx: ?*anyopaque, event: *{s}) anyerror!void = null,\n", .{ name, name });
                     try state_array.append(.{
                         .name = new_name,
+                        .oname = name,
                         .value = @bitCast(e.event),
                     });
                 }
             }
         }
 
-        try state_array_structs.append(state_array);
+        try state_struct_array.append(StateStructPair{
+            .state = state,
+            .entries = try state_array.toOwnedSlice(),
+        });
     }
     try writer.print("}};\n\n", .{});
 
     // Now make the enums per each state that reference the indices above
-    for (state_array_structs.items, 0..) |state_array, i| {
-        try writer.print("pub const ProtoPacket{s}In = enum(u16) {{\n", .{state_fields.items[i].name});
+    for (state_struct_array.items) |state_array| {
+        try writer.print("pub const ProtoPacket{s}In = enum(u16) {{\n", .{state_array.state.name});
 
-        for (state_array.items) |f| {
+        for (state_array.entries) |f| {
             if (std.mem.containsAtLeast(u8, f.name, 1, "P_In")) {
                 try writer.print("    {s} = {d},\n", .{ f.name, f.value });
             }
@@ -175,9 +171,9 @@ pub fn generate(self: *Self, writer: anytype) !void {
 
         try writer.print("}};\n\n", .{});
 
-        try writer.print("pub const ProtoPacket{s}Out = enum(u16) {{\n", .{state_fields.items[i].name});
+        try writer.print("pub const ProtoPacket{s}Out = enum(u16) {{\n", .{state_array.state.name});
 
-        for (state_array.items) |f| {
+        for (state_array.entries) |f| {
             if (std.mem.containsAtLeast(u8, f.name, 1, "P_Out") or std.mem.containsAtLeast(u8, f.name, 1, "P_InOut")) {
                 try writer.print("    {s} = {d},\n", .{ f.name, f.value });
             }
@@ -187,118 +183,191 @@ pub fn generate(self: *Self, writer: anytype) !void {
     }
 
     // Generate the handlers struct
-
-    // Generate the handlers struct
     const endian_string = if (self.sema.endian == .Big) ".big" else ".little";
-    try writer.print(
-        \\pub const Protocol = struct {{
-        \\    state: ProtoState = @enumFromInt(0),
-        \\    compressed: bool = false,
-        \\    encrypted: bool = false,
-        \\    handlers: ProtoHandlers = ProtoHandlers{{}},
-        \\
-        \\    src_reader: std.io.AnyReader = undefined,
-        \\    src_writer: std.io.AnyWriter = undefined,
-        \\
-        \\    const Self = @This();
-        \\
-        \\    pub fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
-        \\        return .{{ 
-        \\            .handlers = handlers,
-        \\            .src_reader = reader,
-        \\            .src_writer = writer,
-        \\        }};
-        \\    }}
-        \\
-        \\    pub fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
-        \\        if(self.compressed or self.encrypted) {{
-        \\            @panic("Compression and encryption not supported yet");  
-        \\        }}
-        \\
-        \\        // Read the packet len
-        \\        var packet: Packet = undefined;
-        \\        
-        \\        if(std.mem.eql(u8, @typeName(@TypeOf(packet.len)), "VarInt")) {{
-        \\            packet.len = 0;
-        \\            
-        \\            var b = try self.src_reader.readByte();
-        \\            while(b & 0x80 != 0) {{
-        \\                packet.len |= (b & 0x7F) << 7;
-        \\                packet.len <<= 7;
-        \\
-        \\                b = try self.src_reader.readByte();
-        \\            }}
-        \\
-        \\            packet.len |= b;
-        \\        }} else {{
-        \\           packet.len = try self.src_reader.readInt(@TypeOf(packet.len), {s});
-        \\        }}
-        \\
-        \\        // Read the packet all into a buffer
-        \\        const packet_len : usize = @intCast(packet.len);
-        \\        const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
-        \\
-        \\        var fbstream = std.io.fixedBufferStream(buffer);
-        \\        const anyreader = fbstream.reader().any();
-        \\
-        \\        // Parse the packet
-        \\        packet.data = try self.parse_data(@TypeOf(packet.data), anyreader);
-        \\    }}
-        \\
-        \\    fn parse_data(self: *Self, comptime T: type, buf_reader: std.io.AnyReader) !T {{
-        \\        @compileLog("Parsing data of type: {{}}", @typeName(T));
-        \\
-        \\        switch(@typeInfo(T)) {{
-        \\            .Bool => {{
-        \\                return try buf_reader.readByte() != 0;
-        \\            }},
-        \\            .Int => |info| {{
-        \\                if(info.bits == 128) {{
-        \\                    var value: u128 = 0;
-        \\           
-        \\                    var b = try buf_reader.readByte();
-        \\                    while(b & 0x80 != 0) {{
-        \\                        value |= (b & 0x7F) << 7;
-        \\                        value <<= 7;
-        \\                        b = try buf_reader.readByte();
-        \\                    }}
-        \\
-        \\                    value |= b;
-        \\                    return value;
-        \\                }} else {{
-        \\                    return try buf_reader.readInt(T, {s});
-        \\                }}
-        \\            }},
-        \\            .Float => |info| {{
-        \\                if(info.bits == 32) {{
-        \\                    return @bitCast(try buf_reader.readInt(u32, {s}));
-        \\                }} else if(info.bits == 64) {{
-        \\                    return @bitCast(try buf_reader.readInt(u64, {s}));
-        \\                }} else {{
-        \\                    @compileError("Unsupported float size");
-        \\                }}
-        \\            }},
-        \\            .Enum => |info| {{
-        \\                return @enumFromInt(try buf_reader.readInt(info.tag_type, {s}));
-        \\            }},
-        \\            .Struct => |info| {{
-        \\                var packet_data : T = undefined;
-        \\                inline for(info.fields) |field| {{
-        \\                    @field(packet_data, field.name) = try self.parse_data(field.type, buf_reader);
-        \\                }}
-        \\                return packet_data;
-        \\            }},
-        \\            .Pointer => |info| {{
-        \\                if(info.size == .Many) {{
-        \\                    @compileLog("Parsing pointer of type: {{}}", @typeName(T));
-        \\                }} else {{
-        \\                    @compileError("Unsupported pointer size");
-        \\                }}
-        \\            }},
-        \\            else => @compileError("Unsupported type for packet data"),
-        \\        }}
-        \\    }}
-        \\
-    , .{ endian_string, endian_string, endian_string, endian_string, endian_string });
+
+    // Find the field name for the packet id
+    const packet_idname = for (self.sema.struct_table.entries.items) |entry| {
+        const found: ?[]const u8 = for (entry.entries) |f| {
+            if (f.type.user == .Union) {
+                break self.sema.token_text_idx(f.type.index);
+            }
+        } else null;
+
+        if (found != null) break found;
+    } else @panic("No packet id found");
+
+    try writer.print(proto_header, .{ packet_idname.?, endian_string, endian_string, endian_string, endian_string });
+
+    {
+        // Print the dispatch function
+        try writer.print(
+            \\    pub fn dispatch(self: *Self, id: usize, buf_reader: std.io.AnyReader) !void {{
+            \\        const state = self.state;
+            \\        const handlers = self.handlers;
+            \\
+            \\        switch(state) {{
+            \\
+        , .{});
+
+        for (state_struct_array.items) |pair| {
+            // Start case
+            try writer.print(
+                \\            .{s} => {{
+                \\
+            , .{pair.state.name});
+
+            const direction = self.sema.direction == .In;
+
+            var count: usize = 0;
+            for (pair.entries) |s| {
+                const is_in = std.mem.containsAtLeast(u8, s.name, 1, "P_In");
+                const is_out = std.mem.containsAtLeast(u8, s.name, 1, "P_Out") or std.mem.containsAtLeast(u8, s.name, 1, "P_InOut");
+
+                const in_dir = (is_in and direction) or (is_out and !direction);
+
+                if (in_dir) {
+                    if (count == 0) {
+                        try writer.print("                if(id == {}) {{\n", .{s.value});
+                    } else {
+                        try writer.print("                else if(id == {}) {{\n", .{s.value});
+                    }
+                    count += 1;
+
+                    try writer.print("                    var event = try self.parse_data({s}, buf_reader);\n", .{s.oname});
+                    try writer.print("                    if(handlers.{s}_handler) |hnd| {{\n", .{s.oname});
+                    try writer.print("                        try hnd(self.user_context, &event);\n", .{});
+                    try writer.print("                    }}\n", .{});
+                    try writer.print("                    return;\n", .{});
+                    try writer.print("                }}\n", .{});
+                }
+            }
+
+            if (count != 0) {
+                try writer.print("                else {{\n", .{});
+                try writer.print("                    return error.PacketInInvalidState;\n", .{});
+                try writer.print("                }}\n", .{});
+            }
+
+            // Close case
+            try writer.print("            }},\n", .{});
+        }
+
+        // Close switch
+        try writer.print("        }}\n", .{});
+
+        // Close func
+        try writer.print("    }}\n", .{});
+    }
+
     try writer.print("}};\n", .{});
 }
+
+const proto_header =
+    \\pub const Protocol = struct {{
+    \\    state: ProtoState = @enumFromInt(0),
+    \\    compressed: bool = false,
+    \\    encrypted: bool = false,
+    \\    handlers: ProtoHandlers = ProtoHandlers{{}},
+    \\
+    \\    user_context: ?*anyopaque = null,
+    \\
+    \\    src_reader: std.io.AnyReader = undefined,
+    \\    src_writer: std.io.AnyWriter = undefined,
+    \\
+    \\    const Self = @This();
+    \\
+    \\    pub fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
+    \\        return .{{ 
+    \\            .handlers = handlers,
+    \\            .src_reader = reader,
+    \\            .src_writer = writer,
+    \\        }};
+    \\    }}
+    \\
+    \\    pub fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
+    \\        if(self.compressed or self.encrypted) {{
+    \\            @panic("Compression and encryption not supported yet");  
+    \\        }}
+    \\
+    \\        // Read the packet len
+    \\        var packet: Packet = undefined;
+    \\        
+    \\        packet.len = try self.parse_data(@TypeOf(packet.len), self.src_reader);
+    \\
+    \\        // Read the packet all into a buffer
+    \\        const packet_len : usize = @intCast(packet.len);
+    \\        const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
+    \\
+    \\        var fbstream = std.io.fixedBufferStream(buffer);
+    \\        const anyreader = fbstream.reader().any();
+    \\
+    \\        inline for(std.meta.fields(@TypeOf(packet))[1..]) |field| {{
+    \\            switch(@typeInfo(field.type)) {{
+    \\                .Pointer => |info| {{
+    \\                    if(info.size == .Many) {{
+    \\                        break;
+    \\                    }}
+    \\                }},
+    \\                else => {{}}
+    \\            }}
+    \\            @field(packet, field.name) = try self.parse_data(field.type, anyreader);
+    \\        }}
+    \\
+    \\        const id = @field(packet, "{s}");
+    \\        try self.dispatch(@intCast(id), anyreader);
+    \\    }}
+    \\
+    \\    fn parse_data(self: *Self, comptime T: type, buf_reader: std.io.AnyReader) !T {{
+    \\        switch(@typeInfo(T)) {{
+    \\            .Bool => {{
+    \\                return try buf_reader.readByte() != 0;
+    \\            }},
+    \\            .Int => |info| {{
+    \\                if(info.bits == 128) {{
+    \\                    var value: u128 = 0;
+    \\           
+    \\                    var b = try buf_reader.readByte();
+    \\                    while(b & 0x80 != 0) {{
+    \\                        value |= (b & 0x7F) << 7;
+    \\                        value <<= 7;
+    \\                        b = try buf_reader.readByte();
+    \\                    }}
+    \\
+    \\                    value |= b;
+    \\                    return value;
+    \\                }} else {{
+    \\                    return try buf_reader.readInt(T, {s});
+    \\                }}
+    \\            }},
+    \\            .Float => |info| {{
+    \\                if(info.bits == 32) {{
+    \\                    return @bitCast(try buf_reader.readInt(u32, {s}));
+    \\                }} else if(info.bits == 64) {{
+    \\                    return @bitCast(try buf_reader.readInt(u64, {s}));
+    \\                }} else {{
+    \\                    @compileError("Unsupported float size");
+    \\                }}
+    \\            }},
+    \\            .Enum => |info| {{
+    \\                return @enumFromInt(try buf_reader.readInt(info.tag_type, {s}));
+    \\            }},
+    \\            .Struct => |info| {{
+    \\                var packet_data : T = undefined;
+    \\                inline for(info.fields) |field| {{
+    \\                    @field(packet_data, field.name) = try self.parse_data(field.type, buf_reader);
+    \\                }}
+    \\                return packet_data;
+    \\            }},
+    \\            .Pointer => |info| {{
+    \\                if(info.size == .Many) {{
+    \\                    // If we're here it's a packet dispatch
+    \\                    return undefined;
+    \\                }} else {{
+    \\                    @compileError("Unsupported pointer size");
+    \\                }}
+    \\            }},
+    \\            else => @compileError("Unsupported type for packet data"),
+    \\        }}
+    \\    }}
+    \\
+;

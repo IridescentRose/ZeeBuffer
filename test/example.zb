@@ -4,7 +4,7 @@
 # Specify that we're describing a protocol from the input direction
 # If this is set to output, then the direction of the protocol will be
 # flipped, and the protocol will be used to encode data instead of decode
-@direction in
+@direction out
 
 @state {
     Handshake: 0,
@@ -16,21 +16,24 @@
 # Base Packet
 @packet {
     len: VarInt,
-    data: ProtoData,
+    id: u8,
+    event: Event(id) # Match to kind
 }
 
 # Packet in compressed mode
 @packet : Compressed(gzip) {
     len: VarInt,
     uncompressedLen: VarInt,
-    data: ProtoData,
+    id: u8,
+    event: Event(id) # Match to kind
 }
 
 # Packet in compressed and encrypted mode
 @packet : Compressed(gzip), Encrypted(aes256) {
     len: VarInt,
     uncompressedLen: VarInt,
-    data: ProtoData, # Decompress then Decrypt
+    id: u8,
+    event: Event(id) # Match to kind
 }
 
 # This is just regular data
@@ -79,10 +82,4 @@ Handshake: Out(1) State(Handshake) {
 #    serverAddress: string,
     serverPort: u16,
     nextState: u8,
-}
-
-# This is the data segment of the packet
-ProtoData {
-    kind: VarInt,
-    event: Event(kind) # Match to kind
 }

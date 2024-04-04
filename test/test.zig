@@ -1,6 +1,11 @@
 const std = @import("std");
 const zeebuffer = @import("out.zig");
 
+fn handshake(ctx: ?*anyopaque, event: *zeebuffer.OutHandshakeHandshake) anyerror!void {
+    _ = ctx;
+    std.debug.print("Handshake: {}\n", .{event});
+}
+
 pub fn main() !void {
     const input = [_]u8{ 5, 1, 32, 13, 37, 3 };
     var output = std.mem.zeroes([1024]u8);
@@ -11,7 +16,9 @@ pub fn main() !void {
     const reader = istream.reader().any();
     const writer = ostream.writer().any();
 
-    var proto = zeebuffer.Protocol.init(.{}, reader, writer);
+    var proto = zeebuffer.Protocol.init(.{
+        .OutHandshakeHandshake_handler = handshake,
+    }, reader, writer);
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
