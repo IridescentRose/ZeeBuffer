@@ -44,7 +44,7 @@ pub fn get_source_location(self: *Self, token: Tokenizer.Token) Location {
 // Pull context window for error messages
 pub fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
     const WINDOW_SIZE = 64;
-    const start = if (token.start - WINDOW_SIZE < 0) 0 else token.start - WINDOW_SIZE;
+    const start = if (token.start < WINDOW_SIZE) 0 else token.start - WINDOW_SIZE;
     const end = if (token.start + token.len + WINDOW_SIZE > self.source.len) self.source.len else token.start + token.len + WINDOW_SIZE;
 
     const startNewLine = token.start - (std.mem.indexOf(u8, self.source[start..token.start], "\n") orelse 0);
