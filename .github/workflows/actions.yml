@@ -30,9 +30,9 @@ jobs:
 
       - name: Build & Test
         run: |
-          zig build -Doptimize=ReleaseFast
-          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-msvc
-          zig build test
+          zig build -Doptimize=ReleaseSmall
+          zig build -Doptimize=ReleaseSmall -Dtarget=x86_64-windows-msvc
+          zig build test -Doptimize=ReleaseSmall
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4.3.1
