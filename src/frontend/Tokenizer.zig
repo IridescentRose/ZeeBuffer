@@ -23,6 +23,8 @@ pub const TokenKind = enum(u16) {
     KWDirection = 17,
     KWState = 18,
     KWStateEvent = 19,
+    KWVarArray = 20,
+    KWFixedArray = 21,
 };
 
 // Pairs for symbols
@@ -51,6 +53,8 @@ const KWStrs = [_]PairKWStr{
     .{ .kind = .KWEndian, .str = "@endian" },
     .{ .kind = .KWDirection, .str = "@direction" },
     .{ .kind = .KWState, .str = "@state" },
+    .{ .kind = .KWVarArray, .str = "VarArray" },
+    .{ .kind = .KWFixedArray, .str = "Array" },
 };
 
 // All valid schema symbols

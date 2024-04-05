@@ -94,6 +94,15 @@ fn print_struct(self: *Self, writer: anytype, e: IR.Structure) !void {
         const eTypename = switch (eType.type) {
             .Base, .User => self.ir.symbol_table.entries.items[eType.value].name,
             .Union => "EventData",
+            .FixedArray => blk: {
+                const base = self.ir.source.token_text_idx(eType.extra);
+                const size = self.ir.source.token_text_idx(eType.value);
+                break :blk try std.fmt.allocPrint(util.allocator(), "[{s}]{s}", .{ size, base });
+            },
+            .VarArray => blk: {
+                const base = self.ir.source.token_text_idx(eType.extra);
+                break :blk try std.fmt.allocPrint(util.allocator(), "[]{s}", .{base});
+            },
         };
 
         try writer.print("    {s}: {s},\n", .{ entry.name, eTypename });

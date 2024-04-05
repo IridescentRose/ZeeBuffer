@@ -97,6 +97,22 @@ fn parse_fields(self: *Self, tokens: []const Tokenizer.Token) ![]AST.Field {
 
             try fields.append(.{ .name = name, .kind = kind, .len_kind = 3 });
             continue;
+        } else if (tokens[self.curr_token + 1].kind == .KWVarArray or tokens[self.curr_token + 1].kind == .KWFixedArray) {
+            // Parse array
+            self.curr_token += 1;
+            const kind: AST.Index = @intCast(self.curr_token);
+
+            // Consume opening paren
+            try self.expect_next(tokens, .LParen);
+            // Consume ident
+            try self.expect_next(tokens, .Ident);
+            // Consume ident
+            try self.expect_next(tokens, .Ident);
+            // Consume closing paren
+            try self.expect_next(tokens, .RParen);
+
+            try fields.append(.{ .name = name, .kind = kind, .len_kind = 4 });
+            continue;
         }
 
         try self.expect_next(tokens, .Ident);

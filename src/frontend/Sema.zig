@@ -224,25 +224,61 @@ fn add_struct_entries(self: *Self, ast: AST, ir: *IR) !void {
         var entries = std.ArrayList(IR.StructureEntry).init(util.allocator());
 
         for (e.fields) |f| {
-            var user: IR.StructureTypes = .Base;
+            var kind: IR.StructureTypes = .Base;
             var entry: IR.SymEntry = undefined;
             var index: usize = 0;
+            var extra: usize = 0;
 
-            if (f.len_kind != 0) {
+            if (f.len_kind == 3) {
                 const name = self.source.token_text_idx(f.kind);
                 if (std.mem.eql(u8, name, "Event")) {
-                    user = .Union;
+                    kind = .Union;
                     index = f.kind + 2;
+                } else {
+                    const token = self.source.tokens[f.kind];
+                    const source = self.source.get_source_string(token);
+                    const location = self.source.get_source_location(token);
+
+                    std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
+                    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                    std.debug.print("{s}\n", .{source});
+
+                    return error.SemanticMacroNotFound;
+                }
+            } else if (f.len_kind == 4) {
+                const name = self.source.token_text_idx(f.kind);
+                if (std.mem.eql(u8, name, "VarArray")) {
+                    kind = .VarArray;
+                    index = f.kind + 2;
+                    extra = f.kind + 3;
+                    //TODO: Check the subtypes
+
+                } else if (std.mem.eql(u8, name, "Array")) {
+                    kind = .FixedArray;
+                    index = f.kind + 2;
+                    extra = f.kind + 3;
+
+                    //TODO: Check the subtypes
+                } else {
+                    const token = self.source.tokens[f.kind];
+                    const source = self.source.get_source_string(token);
+                    const location = self.source.get_source_location(token);
+
+                    std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
+                    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                    std.debug.print("{s}\n", .{source});
+
+                    return error.SemanticMacroNotFound;
                 }
             } else {
-                if (ir.resolve_symbol(self.source.token_text_idx(f.kind))) |kind| {
-                    entry = kind;
-                    switch (kind.type) {
+                if (ir.resolve_symbol(self.source.token_text_idx(f.kind))) |k| {
+                    entry = k;
+                    switch (k.type) {
                         .BaseType => {
-                            user = .Base;
+                            kind = .Base;
                         },
                         .UserType => {
-                            user = .User;
+                            kind = .User;
                         },
                         else => unreachable,
                     }
@@ -272,8 +308,9 @@ fn add_struct_entries(self: *Self, ast: AST, ir: *IR) !void {
             try entries.append(IR.StructureEntry{
                 .name = self.source.token_text_idx(f.name),
                 .type = .{
-                    .type = user,
+                    .type = kind,
                     .value = @intCast(index),
+                    .extra = @intCast(extra),
                 },
             });
         }

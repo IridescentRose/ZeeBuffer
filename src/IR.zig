@@ -51,11 +51,14 @@ pub const StructureTypes = enum(u8) {
     Base = 0,
     User = 1,
     Union = 2,
+    FixedArray = 3,
+    VarArray = 4,
 };
 
 pub const StructureType = struct {
     type: StructureTypes = .Base,
     value: Index, // If user is false, this is an index into the symtable, otherwise it is an index into the struct table
+    extra: Index = 0, // If this is a fixed array, this is the size of the array, if this is a var array, this is the backing type
 };
 
 pub const StructureEntry = struct {
