@@ -1,0 +1,12 @@
+@endian little
+@direction in 
+
+@state : Enum(u8) {
+    Connected : 0,
+}
+
+@packet {
+    len: VarInt,
+    id: u8,
+    data: Event(id),
+}

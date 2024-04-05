@@ -78,21 +78,7 @@ fn generate_attrib_details(self: *Self, e: AST.Entry, ir: *IR) !?AttributeDetail
                             return error.SemanticStateNotFound;
                         };
 
-                        if (sym.type != .State) {
-                            std.debug.print("Invalid state enumeration: {s}\n", .{value});
-
-                            const token = self.source.tokens[a.value];
-                            const source = self.source.get_source_string(token);
-                            const location = self.source.get_source_location(token);
-
-                            std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                            std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                            std.debug.print("{s}\n", .{source});
-
-                            return error.SemanticInvalidStateEnumeration;
-                        } else {
-                            break :blk @intCast(sym.value);
-                        }
+                        break :blk @intCast(sym.value);
                     };
                 },
                 .Enum => {

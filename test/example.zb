@@ -6,6 +6,9 @@
 # flipped, and the protocol will be used to encode data instead of decode
 @direction out
 
+# These are the connection states
+# By default the state will be set to 0
+# These are mutable by the `Protocol.state` field
 @state {
     Handshake: 0,
     Status: 1,
@@ -15,9 +18,10 @@
 
 # Base Packet
 @packet {
+    # The first argument must be len (for now, see Issue #4)
     len: VarInt,
-    id: u8,
-    event: Event(id) # Match to kind
+    id: u8, # Identifier
+    event: Event(id) # Match to kind, performs a stateful match across event IDs
 }
 
 # Packet in compressed mode
