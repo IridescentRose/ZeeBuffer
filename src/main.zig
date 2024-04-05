@@ -5,8 +5,8 @@ const testing = std.testing;
 
 const util = @import("util.zig");
 const SourceObject = @import("SourceObject.zig");
-const Parser = @import("Parser.zig");
-const SemanticAnalysis = @import("sema.zig");
+const Parser = @import("frontend/Parser.zig");
+const SemanticAnalysis = @import("frontend/Sema.zig");
 const CodeGen = @import("codegen.zig");
 
 // Input file
@@ -46,14 +46,14 @@ pub fn main() !void {
     var parser = Parser.init(source_obj);
     const AST = parser.parse() catch return;
 
-    var sema = try SemanticAnalysis.create(source_obj);
-    try sema.analyze(AST);
+    var sema = SemanticAnalysis.init(source_obj);
+    const IR = try sema.analyze(AST);
 
     // Backend: Code generation
     var output_buffer = std.ArrayList(u8).init(util.allocator());
     var bw = std.io.bufferedWriter(output_buffer.writer());
 
-    var codegen = try CodeGen.create(sema);
+    var codegen = CodeGen.init(IR);
     try codegen.generate(bw.writer());
 
     // Write the output to the file
@@ -63,6 +63,4 @@ pub fn main() !void {
     defer output_file.close();
 
     _ = try output_file.write(try output_buffer.toOwnedSlice());
-
-    std.debug.print("Done: {s}\n", .{out_file.?});
 }

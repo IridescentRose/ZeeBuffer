@@ -1,6 +1,6 @@
 const std = @import("std");
 const util = @import("util.zig");
-const Tokenizer = @import("Tokenizer.zig");
+const Tokenizer = @import("frontend/Tokenizer.zig");
 
 const Self = @This();
 
@@ -16,7 +16,7 @@ pub const Location = struct {
 // Initialize the object by reading the file and tokenizing it
 pub fn init(path: []const u8) !Self {
     const source = try Self.read_file(path);
-    var tokenizer = try Tokenizer.create(source);
+    var tokenizer = try Tokenizer.init(source);
 
     return Self{
         .source = source,

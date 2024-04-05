@@ -1,6 +1,6 @@
 const std = @import("std");
 const util = @import("util.zig");
-const Sema = @import("sema.zig");
+const IR = @import("IR.zig");
 
 const StateFields = struct {
     name: []const u8,
@@ -18,16 +18,18 @@ const StateStructPair = struct {
     entries: []StructFields,
 };
 
-sema: Sema,
+ir: IR,
 
 const Self = @This();
 
-pub fn create(sema: Sema) !Self {
-    return Self{ .sema = sema };
+pub fn init(ir: IR) Self {
+    return Self{
+        .ir = ir,
+    };
 }
 
-fn print_enum(self: *Self, writer: anytype, e: Sema.Enum) !void {
-    const typename = self.sema.symbol_table.entries.items[e.type].name;
+fn print_enum(self: *Self, writer: anytype, e: IR.Enum) !void {
+    const typename = self.ir.symbol_table.entries.items[e.type].name;
 
     try writer.print("pub const {s} = enum({s}) {{\n", .{ e.name, typename });
 
@@ -38,7 +40,7 @@ fn print_enum(self: *Self, writer: anytype, e: Sema.Enum) !void {
     try writer.print("}};\n\n", .{});
 }
 
-fn write_struct_name(self: *Self, writer: anytype, e: Sema.Structure) !void {
+fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) !void {
     try writer.print("pub const ", .{});
 
     if (e.flag.packet) {
@@ -67,32 +69,30 @@ fn write_struct_name(self: *Self, writer: anytype, e: Sema.Structure) !void {
         } else {
             try writer.print("Out{s}", .{e.name});
         }
-    } else {
-        @panic("Invalid structure type");
-    }
+    } else unreachable;
 
     if (!e.flag.state_base) {
         const state_num = e.state;
 
-        for (self.sema.symbol_table.entries.items) |sym| {
+        for (self.ir.symbol_table.entries.items) |sym| {
             if (sym.type == .State and sym.value == state_num) {
                 try writer.print("{s}", .{sym.name});
                 break;
             }
-        } else @panic("Invalid state number!");
+        } else unreachable;
     }
 
     return writer.print(" = struct {{\n", .{});
 }
 
-fn print_struct(self: *Self, writer: anytype, e: Sema.Structure) !void {
+fn print_struct(self: *Self, writer: anytype, e: IR.Structure) !void {
     try self.write_struct_name(writer, e);
 
     for (e.entries) |entry| {
         const eType = entry.type;
 
-        const eTypename = switch (eType.user) {
-            .Base, .User => self.sema.symbol_table.entries.items[eType.index].name,
+        const eTypename = switch (eType.type) {
+            .Base, .User => self.ir.symbol_table.entries.items[eType.value].name,
             .Union => "EventData",
         };
 
@@ -103,8 +103,6 @@ fn print_struct(self: *Self, writer: anytype, e: Sema.Structure) !void {
 }
 
 pub fn generate(self: *Self, writer: anytype) !void {
-    std.debug.print("Generating code...\n", .{});
-
     try writer.print("const std = @import(\"std\");\n\n", .{});
     try writer.print("pub const VarInt = u128;\n\n", .{});
     try writer.print("pub const EventData = [*]u8;\n\n", .{});
@@ -114,7 +112,7 @@ pub fn generate(self: *Self, writer: anytype) !void {
 
     // Protocol internal states enum
     try writer.print("pub const ProtoState = enum(u16) {{\n", .{});
-    for (self.sema.symbol_table.entries.items) |sym| {
+    for (self.ir.symbol_table.entries.items) |sym| {
         if (sym.type == .State) {
             try writer.print("    {s} = {},\n", .{ sym.name, sym.value });
             try state_fields.append(.{ .name = sym.name, .value = @intCast(sym.value) });
@@ -122,11 +120,11 @@ pub fn generate(self: *Self, writer: anytype) !void {
     }
     try writer.print("}};\n\n", .{});
 
-    for (self.sema.enum_table.entries.items) |e| {
+    for (self.ir.enum_table.entries.items) |e| {
         try self.print_enum(writer, e);
     }
 
-    for (self.sema.struct_table.entries.items) |e| {
+    for (self.ir.struct_table.entries.items) |e| {
         try self.print_struct(writer, e);
     }
 
@@ -135,7 +133,7 @@ pub fn generate(self: *Self, writer: anytype) !void {
     for (state_fields.items) |state| {
         var state_array = std.ArrayList(StructFields).init(util.allocator());
 
-        for (self.sema.struct_table.entries.items) |e| {
+        for (self.ir.struct_table.entries.items) |e| {
             if (e.flag.state_base or e.state == state.value) {
                 if (e.flag.event) {
                     const inout = if (e.flag.in and e.flag.out) "InOut" else if (e.flag.in) "In" else "Out";
@@ -160,18 +158,18 @@ pub fn generate(self: *Self, writer: anytype) !void {
     try writer.print("}};\n\n", .{});
 
     // Generate the handlers struct
-    const endian_string = if (self.sema.endian == .Big) ".big" else ".little";
+    const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
 
     // Find the field name for the packet id
-    const packet_idname = for (self.sema.struct_table.entries.items) |entry| {
+    const packet_idname = for (self.ir.struct_table.entries.items) |entry| {
         const found: ?[]const u8 = for (entry.entries) |f| {
-            if (f.type.user == .Union) {
-                break self.sema.source.token_text_idx(f.type.index);
+            if (f.type.type == .Union) {
+                break self.ir.source.token_text_idx(f.type.value);
             }
         } else null;
 
         if (found != null) break found;
-    } else @panic("No packet id found");
+    } else unreachable;
 
     try writer.print(proto_header, .{ packet_idname.?, endian_string, endian_string, endian_string, endian_string });
 
@@ -193,7 +191,7 @@ pub fn generate(self: *Self, writer: anytype) !void {
                 \\
             , .{pair.state.name});
 
-            const direction = self.sema.direction == .In;
+            const direction = self.ir.direction == .In;
 
             var count: usize = 0;
             for (pair.entries) |s| {

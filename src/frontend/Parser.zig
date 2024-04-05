@@ -1,8 +1,8 @@
 const std = @import("std");
-const util = @import("util.zig");
-const SourceObject = @import("SourceObject.zig");
+const util = @import("../util.zig");
+const SourceObject = @import("../SourceObject.zig");
 const Tokenizer = @import("Tokenizer.zig");
-const AST = @import("AST.zig");
+const AST = @import("../AST.zig");
 
 const Self = @This();
 
@@ -158,8 +158,6 @@ fn parse_attributes(self: *Self, tokens: []const Tokenizer.Token) ![]AST.Attribu
 }
 
 pub fn parse(self: *Self) !AST {
-    std.debug.print("Parsing protocol...\n", .{});
-
     // AST to return
     var entries = std.ArrayList(AST.Entry).init(util.allocator());
     var endian: AST.Endian = .Little;
@@ -273,7 +271,7 @@ pub fn parse(self: *Self) !AST {
             },
 
             .EOF => break,
-            else => @panic("Compiler errror: Unexpected token in parser!\nPlease report this bug here: https://github.com/IridescentRose/ZeeBuffer/issues"),
+            else => @panic("Compiler error: Unexpected token in parser!\nPlease report this bug here: https://github.com/IridescentRose/ZeeBuffer/issues\n"),
         }
     }
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const util = @import("util.zig");
+const util = @import("../util.zig");
 
 // All valid schema tokens
 pub const TokenKind = enum(u16) {
@@ -77,7 +77,7 @@ in_ident: bool = false,
 source: []const u8,
 
 // Create a new tokenizer
-pub fn create(source: []const u8) !Self {
+pub fn init(source: []const u8) !Self {
     if (source.len >= std.math.maxInt(u16))
         return error.SourceTooBig;
 
@@ -101,7 +101,6 @@ fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
 }
 
 pub fn tokenize(self: *Self) ![]Token {
-    std.debug.print("Tokenizing schema...\n", .{});
     var tokenArray = std.ArrayList(Token).init(util.allocator());
 
     while (self.curr_index < self.source.len) : (self.curr_index += 1) {
