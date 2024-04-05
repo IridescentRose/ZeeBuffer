@@ -37,6 +37,7 @@ pub fn main() !void {
     defer util.deinit();
 
     // Parse arguments
+    // TODO: Better argument parsing
     parse_args() catch return;
 
     // Frontend: Tokenize, parse, and analyze the input
@@ -63,5 +64,5 @@ pub fn main() !void {
 
     _ = try output_file.write(try output_buffer.toOwnedSlice());
 
-    std.debug.print("\r                           \n", .{});
+    std.debug.print("Done: {s}\n", .{out_file.?});
 }

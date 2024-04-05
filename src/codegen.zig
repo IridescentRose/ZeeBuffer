@@ -103,7 +103,7 @@ fn print_struct(self: *Self, writer: anytype, e: Sema.Structure) !void {
 }
 
 pub fn generate(self: *Self, writer: anytype) !void {
-    std.debug.print("\rGenerating code...", .{});
+    std.debug.print("Generating code...\n", .{});
 
     try writer.print("const std = @import(\"std\");\n\n", .{});
     try writer.print("pub const VarInt = u128;\n\n", .{});

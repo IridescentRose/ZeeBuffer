@@ -101,7 +101,7 @@ fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
 }
 
 pub fn tokenize(self: *Self) ![]Token {
-    std.debug.print("Tokenizing schema", .{});
+    std.debug.print("Tokenizing schema...\n", .{});
     var tokenArray = std.ArrayList(Token).init(util.allocator());
 
     while (self.curr_index < self.source.len) : (self.curr_index += 1) {

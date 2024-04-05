@@ -2,6 +2,7 @@ const std = @import("std");
 const util = @import("util.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
+const AST = @import("AST.zig");
 const SourceObject = @import("SourceObject.zig");
 
 const SymType = enum(u8) {
@@ -110,8 +111,8 @@ symbol_table: SymTable,
 struct_table: StructureTable,
 enum_table: EnumTable,
 source: SourceObject,
-endian: Parser.Endian = .Little,
-direction: Parser.Direction = .In,
+endian: AST.Endian = .Little,
+direction: AST.Direction = .In,
 
 const Self = @This();
 
@@ -137,10 +138,10 @@ pub fn create(source: SourceObject) !Self {
     };
 }
 
-fn add_state_symbols(self: *Self, protocol: Parser.Protocol) !void {
+fn add_state_symbols(self: *Self, ast: AST) !void {
     // Find the state entry
     var idx: ?usize = null;
-    for (protocol.entries.items, 0..) |e, i| {
+    for (ast.entries, 0..) |e, i| {
         if (e.special == .State) {
             if (idx != null) {
                 @panic("State is defined twice!");
@@ -155,8 +156,7 @@ fn add_state_symbols(self: *Self, protocol: Parser.Protocol) !void {
         @panic("State is not defined!");
     }
 
-    //const e = protocol.entries.swapRemove(idx.?);
-    const e = protocol.entries.items[idx.?];
+    const e = ast.entries[idx.?];
 
     // Add the state symbols
     for (e.fields) |f| {
@@ -182,8 +182,8 @@ fn resolve_symbol(self: *Self, name: []const u8) !SymEntry {
     return error.SymEntryNotFound;
 }
 
-fn add_enum_entries(self: *Self, protocol: Parser.Protocol) !void {
-    for (protocol.entries.items) |e| {
+fn add_enum_entries(self: *Self, ast: AST) !void {
+    for (ast.entries) |e| {
         if (e.attributes) |attribs| {
             for (attribs) |a| {
                 if (a.type == .Enum) {
@@ -218,8 +218,8 @@ fn add_enum_entries(self: *Self, protocol: Parser.Protocol) !void {
     }
 }
 
-fn add_struct_data_symbols(self: *Self, protocol: Parser.Protocol) !void {
-    for (protocol.entries.items) |e| {
+fn add_struct_data_symbols(self: *Self, ast: AST) !void {
+    for (ast.entries) |e| {
         // Data
         if (e.attributes) |attribs| {
             var is_enum = false;
@@ -242,8 +242,8 @@ fn add_struct_data_symbols(self: *Self, protocol: Parser.Protocol) !void {
     }
 }
 
-fn add_struct_entries(self: *Self, protocol: Parser.Protocol) !void {
-    for (protocol.entries.items) |e| {
+fn add_struct_entries(self: *Self, ast: AST) !void {
+    for (ast.entries) |e| {
         if (e.special == .State) {
             continue;
         }
@@ -366,8 +366,8 @@ fn add_struct_entries(self: *Self, protocol: Parser.Protocol) !void {
     }
 }
 
-pub fn analyze(self: *Self, protocol: Parser.Protocol) !void {
-    std.debug.print("\rAnalyzing protocol...", .{});
+pub fn analyze(self: *Self, protocol: AST) !void {
+    std.debug.print("Analyzing protocol...\n", .{});
 
     self.endian = protocol.endian;
     self.direction = protocol.direction;

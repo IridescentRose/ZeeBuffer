@@ -24,6 +24,7 @@ pub fn init(path: []const u8) !Self {
     };
 }
 
+// Pull location for error messages
 pub fn get_source_location(self: *Self, token: Tokenizer.Token) Location {
     var line: u32 = 1;
     var column: u32 = 1;
@@ -40,6 +41,7 @@ pub fn get_source_location(self: *Self, token: Tokenizer.Token) Location {
     return .{ .line = line, .column = column };
 }
 
+// Pull context window for error messages
 pub fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
     const WINDOW_SIZE = 64;
     const start = if (token.start - WINDOW_SIZE < 0) 0 else token.start - WINDOW_SIZE;
@@ -49,14 +51,6 @@ pub fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
     const endNewLine = (std.mem.indexOf(u8, self.source[token.start..end], "\n") orelse 0) + token.start;
 
     return self.source[startNewLine..endNewLine];
-}
-
-pub fn print_source(self: *Self, token: Tokenizer.Token) void {
-    const location = self.get_source_location(token);
-    const source = self.get_source_string(token);
-
-    std.debug.print("{}:{}:\n", .{ location.line, location.column });
-    std.debug.print("{s}\n", .{source});
 }
 
 pub fn token_text(self: *Self, token: Tokenizer.Token) []const u8 {
