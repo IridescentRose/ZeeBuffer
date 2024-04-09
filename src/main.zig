@@ -9,7 +9,7 @@ const Tokenizer = @import("frontend/Tokenizer.zig");
 const SourceObject = @import("SourceObject.zig");
 const Parser = @import("frontend/Parser.zig");
 const SemanticAnalysis = @import("frontend/Sema.zig");
-const CodeGen = @import("codegen.zig");
+const CodeGen = @import("CodeGen.zig");
 
 // Input file
 var in_file: ?[]const u8 = null;
@@ -55,10 +55,7 @@ pub fn main() !void {
     var output_buffer = std.ArrayList(u8).init(util.allocator());
     var bw = std.io.bufferedWriter(output_buffer.writer());
 
-    var codegen = CodeGen.init(IR);
-    try codegen.generate(bw.writer());
-
-    // Write the output to the file
+    try CodeGen.generate(.Zig, IR, bw.writer().any());
     try bw.flush();
 
     var output_file = try fs.cwd().createFile(out_file.?, .{});
