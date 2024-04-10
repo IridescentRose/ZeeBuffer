@@ -44,21 +44,20 @@ pub fn generator(self: *Self) Generator {
     };
 }
 
-pub fn init(ctx: *anyopaque, ir: IR) anyerror!void {
+fn init(ctx: *anyopaque, ir: IR) anyerror!void {
     var self = coerce(ctx);
     self.ir = ir;
 }
 
-pub fn write_header(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
+fn write_header(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
     _ = ctx;
     try writer.print("const std = @import(\"std\");\n\n", .{});
 }
 
-pub fn write_state(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
+fn write_state(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
     const self = coerce(ctx);
     self.state_fields = std.ArrayList(StateFields).init(util.allocator());
 
-    // Protocol internal states enum
     try writer.print("pub const ProtoState = enum(u16) {{\n", .{});
     for (self.ir.symbol_table.entries.items) |sym| {
         if (sym.type == .State) {
@@ -69,179 +68,150 @@ pub fn write_state(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
     try writer.print("}};\n\n", .{});
 }
 
-pub fn write_struct(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
+fn write_struct(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Structure) !void {
     const self = coerce(ctx);
-    for (self.ir.struct_table.entries.items) |e| {
-        try self.write_struct_name(writer, e);
+    const struct_name = try self.write_struct_name(writer, e);
 
-        for (e.entries) |entry| {
-            const eType = entry.type;
+    for (e.entries) |entry| {
+        const eType = entry.type;
 
-            const eTypename = switch (eType.type) {
-                .Base, .User => self.ir.symbol_table.entries.items[eType.value].name,
-                .Union => "EventData",
-                .FixedArray => blk: {
-                    const base = self.ir.source.token_text_idx(eType.extra);
-                    const size = self.ir.source.token_text_idx(eType.value);
-                    break :blk try std.fmt.allocPrint(util.allocator(), "[{s}]{s}", .{ size, base });
-                },
-                .VarArray => blk: {
-                    const base = self.ir.source.token_text_idx(eType.extra);
-                    break :blk try std.fmt.allocPrint(util.allocator(), "[]{s}", .{base});
-                },
-            };
+        const eTypename = switch (eType.type) {
+            .Base,
+            => blk: {
+                const base = self.ir.symbol_table.entries.items[eType.value].name;
 
-            try writer.print("    {s}: {s},\n", .{ entry.name, eTypename });
-        }
+                if (std.mem.eql(u8, base, "VarInt")) {
+                    break :blk "usize";
+                }
 
-        try writer.print("}};\n\n", .{});
+                break :blk base;
+            },
+            .User => self.ir.symbol_table.entries.items[eType.value].name,
+            .Union => "*anyopaque",
+            .FixedArray => blk: {
+                const base = self.ir.source.token_text_idx(eType.extra);
+                const size = self.ir.source.token_text_idx(eType.value);
+                break :blk try std.fmt.allocPrint(util.allocator(), "[{s}]{s}", .{ size, base });
+            },
+            .VarArray => blk: {
+                const base = self.ir.source.token_text_idx(eType.extra);
+                break :blk try std.fmt.allocPrint(util.allocator(), "[]{s}", .{base});
+            },
+        };
+
+        try writer.print("    {s}: {s},\n", .{ entry.name, eTypename });
     }
-}
 
-pub fn write_enum(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
-    const self = coerce(ctx);
-    for (self.ir.enum_table.entries.items) |e| {
-        const typename = self.ir.symbol_table.entries.items[e.type].name;
-
-        try writer.print("pub const {s} = enum({s}) {{\n", .{ e.name, typename });
-
-        for (e.entries) |entry| {
-            try writer.print("    {s} = {},\n", .{ entry.name, entry.value });
-        }
-
-        try writer.print("}};\n\n", .{});
-    }
-}
-
-pub fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
-    var self = coerce(ctx);
-
-    // Generate the handlers struct
     const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
 
-    // Find the field name for the packet id
-    const packet_idname = for (self.ir.struct_table.entries.items) |entry| {
-        const found: ?[]const u8 = for (entry.entries) |f| {
-            if (f.type.type == .Union) {
-                break self.ir.source.token_text_idx(f.type.value);
-            }
-        } else null;
+    // Read
+    try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader) !{s} {{\n", .{ struct_name, struct_name });
 
-        if (found != null) break found;
-    } else unreachable;
+    for (e.entries) |entry| {
+        switch (entry.type.type) {
+            .Base => {
+                const base = self.ir.symbol_table.entries.items[entry.type.value].name;
 
-    try writer.print(proto_header, .{ packet_idname.?, endian_string, endian_string, endian_string, endian_string });
-
-    {
-        // Print the dispatch function
-        try writer.print(
-            \\    pub fn dispatch(self: *Self, id: usize, buf_reader: std.io.AnyReader) !void {{
-            \\        const state = self.state;
-            \\        const handlers = self.handlers;
-            \\
-            \\        switch(state) {{
-            \\
-        , .{});
-
-        for (self.state_struct_array.items) |pair| {
-            // Start case
-            try writer.print(
-                \\            .{s} => {{
-                \\
-            , .{pair.state.name});
-
-            const direction = self.ir.direction == .In;
-
-            var count: usize = 0;
-            for (pair.entries) |s| {
-                const is_in = std.mem.containsAtLeast(u8, s.name, 1, "P_In");
-                const is_out = std.mem.containsAtLeast(u8, s.name, 1, "P_Out") or std.mem.containsAtLeast(u8, s.name, 1, "P_InOut");
-
-                const in_dir = (is_in and direction) or (is_out and !direction);
-
-                if (in_dir) {
-                    if (count == 0) {
-                        try writer.print("                if(id == {}) {{\n", .{s.value});
-                    } else {
-                        try writer.print("                else if(id == {}) {{\n", .{s.value});
-                    }
-                    count += 1;
-
-                    try writer.print("                    var event = try self.parse_data({s}, buf_reader);\n", .{s.oname});
-                    try writer.print("                    if(handlers.{s}_handler) |hnd| {{\n", .{s.oname});
-                    try writer.print("                        try hnd(self.user_context, &event);\n", .{});
-                    try writer.print("                    }}\n", .{});
-                    try writer.print("                    return;\n", .{});
-                    try writer.print("                }}\n", .{});
+                if (std.mem.eql(u8, base, "f32")) {
+                    try writer.print("        self.{s} = @bitCast(try reader.readInt(u32, {s}));\n", .{ entry.name, endian_string });
+                } else if (std.mem.eql(u8, base, "f64")) {
+                    try writer.print("        self.{s} = @bitCast(try reader.readInt(u64, {s}));\n", .{ entry.name, endian_string });
+                } else if (std.mem.eql(u8, base, "VarInt")) {
+                    try writer.print("        self.{s} = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{entry.name});
+                } else {
+                    try writer.print("        self.{s} = try reader.readInt({s}, {s});\n", .{ entry.name, base, endian_string });
                 }
-            }
-
-            if (count != 0) {
-                try writer.print("                else {{\n", .{});
-                try writer.print("                    return error.PacketInInvalidState;\n", .{});
-                try writer.print("                }}\n", .{});
-            }
-
-            // Close case
-            try writer.print("            }},\n", .{});
+            },
+            .User => {
+                try writer.print("        self.{s}.read(reader);\n", .{entry.name});
+            },
+            else => {
+                try writer.print("        //TODO: UNFINISHED {s}!\n", .{entry.name});
+            },
         }
+    }
+    try writer.print("    }}\n", .{});
 
-        // Close switch
-        try writer.print("        }}\n", .{});
+    try writer.print("}};\n\n", .{});
+}
 
-        // Close func
-        try writer.print("    }}\n", .{});
+fn write_enum(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Enum) !void {
+    const self = coerce(ctx);
+
+    const typename = self.ir.symbol_table.entries.items[e.type].name;
+
+    try writer.print("pub const {s} = enum({s}) {{\n", .{ e.name, typename });
+
+    for (e.entries) |entry| {
+        try writer.print("    {s} = {},\n", .{ entry.name, entry.value });
     }
 
+    try writer.print("}};\n\n", .{});
+}
+
+fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
+    _ = coerce(ctx);
+
+    try writer.print(proto_header, .{});
     try writer.print("}};\n", .{});
 }
 
-fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) !void {
+fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) ![]const u8 {
     try writer.print("pub const ", .{});
 
     if (e.flag.packet) {
         if (e.flag.compressed) {
             if (e.flag.encrypted) {
-                return writer.print("CompEncPacket = struct {{\n", .{});
+                try writer.print("CompEncPacket = struct {{\n", .{});
+                return "CompEncPacket";
             } else {
-                return writer.print("CompPacket = struct {{\n", .{});
+                try writer.print("CompPacket = struct {{\n", .{});
+                return "CompPacket";
             }
         } else if (e.flag.encrypted) {
-            return writer.print("EncPacket = struct {{\n", .{});
+            try writer.print("EncPacket = struct {{\n", .{});
+            return "EncPacket";
         } else {
-            return writer.print("Packet = struct {{\n", .{});
+            try writer.print("Packet = struct {{\n", .{});
+            return "Packet";
         }
     }
 
-    if (e.flag.data) {
-        try writer.print("{s}", .{e.name});
-    } else if (e.flag.event) {
-        if (e.flag.in) {
-            if (e.flag.out) {
-                try writer.print("InOut{s}", .{e.name});
-            } else {
-                try writer.print("In{s}", .{e.name});
-            }
-        } else {
-            try writer.print("Out{s}", .{e.name});
-        }
-    } else unreachable;
+    std.debug.print("{s}\n", .{e.name});
 
+    var name: []const u8 = e.name;
+    if (e.flag.event) {
+        // zig fmt: off
+        name =  if (e.flag.in)
+                if (e.flag.out)
+                    try std.fmt.allocPrint(util.allocator(), "InOut{s}", .{e.name})
+                else
+                    try std.fmt.allocPrint(util.allocator(), "In{s}", .{e.name})
+                else
+                    try std.fmt.allocPrint(util.allocator(), "Out{s}", .{e.name});
+        // zig fmt: on
+    } else if (!e.flag.data) unreachable;
+
+    try writer.print("{s}", .{name});
+
+    // If it's not a base struct, print the state
     if (!e.flag.state_base) {
         const state_num = e.state;
 
         for (self.ir.symbol_table.entries.items) |sym| {
             if (sym.type == .State and sym.value == state_num) {
                 try writer.print("{s}", .{sym.name});
+                name = try std.fmt.allocPrint(util.allocator(), "{s}{s}", .{ name, sym.name });
                 break;
             }
         } else unreachable;
     }
 
-    return writer.print(" = struct {{\n", .{});
+    try writer.print(" = struct {{\n", .{});
+    return name;
 }
 
-pub fn write_handle_table(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
+fn write_handle_table(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
     const self = coerce(ctx);
 
     self.state_struct_array = std.ArrayList(StateStructPair).init(util.allocator());
@@ -312,74 +282,6 @@ const proto_header =
     \\
     \\        var fbstream = std.io.fixedBufferStream(buffer);
     \\        const anyreader = fbstream.reader().any();
-    \\
-    \\        inline for(std.meta.fields(@TypeOf(packet))[1..]) |field| {{
-    \\            switch(@typeInfo(field.type)) {{
-    \\                .Pointer => |info| {{
-    \\                    if(info.size == .Many) {{
-    \\                        break;
-    \\                    }}
-    \\                }},
-    \\                else => {{}}
-    \\            }}
-    \\            @field(packet, field.name) = try self.parse_data(field.type, anyreader);
-    \\        }}
-    \\
-    \\        const id = @field(packet, "{s}");
-    \\        try self.dispatch(@intCast(id), anyreader);
-    \\    }}
-    \\
-    \\    fn parse_data(self: *Self, comptime T: type, buf_reader: std.io.AnyReader) !T {{
-    \\        switch(@typeInfo(T)) {{
-    \\            .Bool => {{
-    \\                return try buf_reader.readByte() != 0;
-    \\            }},
-    \\            .Int => |info| {{
-    \\                if(info.bits == 128) {{
-    \\                    var value: u128 = 0;
-    \\           
-    \\                    var b = try buf_reader.readByte();
-    \\                    while(b & 0x80 != 0) {{
-    \\                        value |= (b & 0x7F) << 7;
-    \\                        value <<= 7;
-    \\                        b = try buf_reader.readByte();
-    \\                    }}
-    \\
-    \\                    value |= b;
-    \\                    return value;
-    \\                }} else {{
-    \\                    return try buf_reader.readInt(T, {s});
-    \\                }}
-    \\            }},
-    \\            .Float => |info| {{
-    \\                if(info.bits == 32) {{
-    \\                    return @bitCast(try buf_reader.readInt(u32, {s}));
-    \\                }} else if(info.bits == 64) {{
-    \\                    return @bitCast(try buf_reader.readInt(u64, {s}));
-    \\                }} else {{
-    \\                    @compileError("Unsupported float size");
-    \\                }}
-    \\            }},
-    \\            .Enum => |info| {{
-    \\                return @enumFromInt(try buf_reader.readInt(info.tag_type, {s}));
-    \\            }},
-    \\            .Struct => |info| {{
-    \\                var packet_data : T = undefined;
-    \\                inline for(info.fields) |field| {{
-    \\                    @field(packet_data, field.name) = try self.parse_data(field.type, buf_reader);
-    \\                }}
-    \\                return packet_data;
-    \\            }},
-    \\            .Pointer => |info| {{
-    \\                if(info.size == .Many) {{
-    \\                    // If we're here it's a packet dispatch
-    \\                    return undefined;
-    \\                }} else {{
-    \\                    @compileError("Unsupported pointer size");
-    \\                }}
-    \\            }},
-    \\            else => @compileError("Unsupported type for packet data"),
-    \\        }}
     \\    }}
     \\
 ;

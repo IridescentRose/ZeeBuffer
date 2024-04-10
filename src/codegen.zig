@@ -16,8 +16,8 @@ pub const Generator = struct {
         write_header: *const fn (context: *anyopaque, writer: std.io.AnyWriter) anyerror!void,
         write_footer: *const fn (context: *anyopaque, writer: std.io.AnyWriter) anyerror!void,
 
-        write_struct: *const fn (context: *anyopaque, writer: std.io.AnyWriter) anyerror!void,
-        write_enum: *const fn (context: *anyopaque, writer: std.io.AnyWriter) anyerror!void,
+        write_struct: *const fn (context: *anyopaque, writer: std.io.AnyWriter, e: IR.Structure) anyerror!void,
+        write_enum: *const fn (context: *anyopaque, writer: std.io.AnyWriter, e: IR.Enum) anyerror!void,
         write_state: *const fn (context: *anyopaque, writer: std.io.AnyWriter) anyerror!void,
 
         write_handle_table: *const fn (context: *anyopaque, writer: std.io.AnyWriter) anyerror!void,
@@ -35,12 +35,12 @@ pub const Generator = struct {
         return self.table.write_footer(self.context, writer);
     }
 
-    pub fn write_struct(self: Generator, writer: std.io.AnyWriter) anyerror!void {
-        return self.table.write_struct(self.context, writer);
+    pub fn write_struct(self: Generator, writer: std.io.AnyWriter, e: IR.Structure) anyerror!void {
+        return self.table.write_struct(self.context, writer, e);
     }
 
-    pub fn write_enum(self: Generator, writer: std.io.AnyWriter) anyerror!void {
-        return self.table.write_enum(self.context, writer);
+    pub fn write_enum(self: Generator, writer: std.io.AnyWriter, e: IR.Enum) anyerror!void {
+        return self.table.write_enum(self.context, writer, e);
     }
 
     pub fn write_state(self: Generator, writer: std.io.AnyWriter) anyerror!void {
@@ -67,8 +67,15 @@ pub fn generate(format: GeneratorType, ir: IR, writer: std.io.AnyWriter) !void {
 
     try generator.write_header(writer);
     try generator.write_state(writer);
-    try generator.write_enum(writer);
-    try generator.write_struct(writer);
+
+    for (ir.enum_table.entries.items) |e| {
+        try generator.write_enum(writer, e);
+    }
+
+    for (ir.struct_table.entries.items) |e| {
+        try generator.write_struct(writer, e);
+    }
+
     try generator.write_handle_table(writer);
     try generator.write_footer(writer);
 }
