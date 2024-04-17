@@ -18,7 +18,6 @@
 
 # Base Packet
 @packet {
-    len: VarInt,
     id: u8, # Identifier
     event: Event(id) # Match to kind, performs a stateful match across event IDs
 }

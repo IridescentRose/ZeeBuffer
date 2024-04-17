@@ -76,7 +76,9 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
         try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
     } else {
         try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
-        start = 1;
+        if (std.mem.eql(u8, e.entries[0].name, "len")) {
+            start = 1;
+        }
     }
 
     var allocator_used: bool = false;
@@ -283,6 +285,21 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
 
     try writer.print(proto_header, .{});
 
+    for (self.ir.struct_table.entries.items) |e| {
+        if (e.flag.packet and !e.flag.encrypted and !e.flag.compressed) {
+            const name = e.entries[0].name;
+            if (std.mem.eql(u8, "len", name)) {
+                try writer.print(len_prefix, .{});
+            } else if (std.mem.eql(u8, "id", name)) {
+                try writer.print(id_prefix, .{});
+            } else {
+                @panic("Codegen error #14");
+            }
+            break;
+        }
+    } else unreachable;
+
+    try writer.print(dispatch_stub, .{});
     try writer.print("        switch(self.state) {{\n", .{});
 
     for (self.state_struct_array.items) |struct_pair| {
@@ -433,17 +450,27 @@ const proto_header =
     \\
     \\        // Read the packet len
     \\        var packet: Packet = undefined;
+    \\
+;
+pub const len_prefix =
     \\        
     \\        packet.len = blk: {{ var value : usize = 0; var b : usize = try self.src_reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try self.src_reader.readByte();}} value |= b; break :blk value; }};
     \\
     \\        // Read the packet all into a buffer
     \\        const packet_len : usize = @intCast(packet.len);
     \\        const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
+    \\        defer allocator.free(buffer);
     \\
     \\        var fbstream = std.io.fixedBufferStream(buffer);
     \\        const fbreader = fbstream.reader().any();
     \\
     \\        try packet.read(fbreader, allocator, self);
+;
+
+pub const id_prefix =
+    \\        try packet.read(self.src_reader, allocator, self);
+;
+pub const dispatch_stub =
     \\    }}
     \\
     \\    pub fn dispatch(self: *Self, reader: std.io.AnyReader, allocator: std.mem.Allocator, id: usize) !void {{
