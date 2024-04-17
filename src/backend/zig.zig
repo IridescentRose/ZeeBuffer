@@ -151,11 +151,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                                 try writer.print("            try e.read(reader, allocator);\n", .{});
                                 allocator_used = true;
                             },
-                            else => {
-                                //TODO: Better documentation
-                                std.debug.print("Nested Arrays are not supported yet!\n", .{});
-                                return error.CodeGenNestedArrays;
-                            },
+                            else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
                         }
                     }
                 }
@@ -169,19 +165,13 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                     if (std.mem.eql(u8, varint, i.name)) {
                         switch (i.type) {
                             .BaseType => {
-                                if (std.mem.eql(u8, varint, "f32") or std.mem.eql(u8, varint, "f64")) {
-                                    std.debug.print("Variable length array with non-integral type: {s}!\n", .{varint});
-                                    return error.CodeGenVarArrayInvalidType;
-                                } else if (std.mem.eql(u8, varint, "VarInt")) {
+                                if (std.mem.eql(u8, varint, "VarInt")) {
                                     try writer.print("        const {s}_len = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{entry.name});
                                 } else {
                                     try writer.print("        const {s}_len = try reader.readInt({s}, {s});\n", .{ entry.name, varint, endian_string });
                                 }
                             },
-                            else => {
-                                std.debug.print("Variable length array without base type: {s}!\n", .{varint});
-                                return error.CodeGenVarArrayInvalidType;
-                            },
+                            else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
                         }
                     }
                 }
@@ -210,11 +200,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                                 try writer.print("            try e.read(reader, allocator);\n", .{});
                                 allocator_used = true;
                             },
-                            else => {
-                                //TODO: Better documentation
-                                std.debug.print("Nested Arrays are not supported yet!\n", .{});
-                                return error.CodeGenNestedArrays;
-                            },
+                            else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
                         }
                     }
                 }
@@ -226,9 +212,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                     const s = self.ir.source.token_text_idx(entry.type.value);
                     try writer.print("        try protocol.dispatch(reader, allocator, self.{s});\n", .{s});
                     allocator_used = true;
-                } else {
-                    try writer.print("        //TODO: UNFINISHED {s}!\n", .{entry.name});
-                }
+                } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues");
             },
         }
     }
@@ -326,12 +310,10 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
                 try writer.print(len_prefix, .{});
             } else if (std.mem.eql(u8, "id", name)) {
                 try writer.print(id_prefix, .{});
-            } else {
-                @panic("Codegen error #14");
             }
             break;
         }
-    } else unreachable;
+    }
 
     try writer.print(dispatch_stub, .{});
     try writer.print("        switch(self.state) {{\n", .{});
@@ -347,7 +329,6 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
 
             if ((!my_dir or !is_in) and (my_dir or !is_out)) continue;
 
-            std.debug.print("{s} {s} {}\n", .{ e.name, e.oname, e.value });
             try writer.print("                    {} => {{\n", .{e.value});
             try writer.print("                        var s : {s} = undefined;\n", .{e.oname});
             try writer.print("                        try s.read(reader, allocator);\n", .{});
@@ -402,7 +383,7 @@ fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) ![]const u8 
                 else
                     try std.fmt.allocPrint(util.allocator(), "Out{s}", .{e.name});
         // zig fmt: on
-    } else if (!e.flag.data) unreachable;
+    }
 
     try writer.print("{s}", .{name});
 
@@ -416,7 +397,7 @@ fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) ![]const u8 
                 name = try std.fmt.allocPrint(util.allocator(), "{s}{s}", .{ name, sym.name });
                 break;
             }
-        } else unreachable;
+        }
     }
 
     try writer.print(" = struct {{\n", .{});

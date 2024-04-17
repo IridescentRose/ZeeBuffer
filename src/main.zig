@@ -224,3 +224,25 @@ test "sema_enum_type" {
 
     try testing.expectError(error.SemanticEnumBackingTypeNotFound, sema.analyze(AST));
 }
+
+test "sema_array_invalid" {
+    const source_obj = try SourceObject.init("test/test_sema_array_invalid.zb");
+
+    var parser = Parser.init(source_obj);
+    const AST = try parser.parse();
+
+    var sema = SemanticAnalysis.init(source_obj);
+
+    try testing.expectError(error.SemanticInvalidArraySubtype, sema.analyze(AST));
+}
+
+test "sema_vararray_invalid" {
+    const source_obj = try SourceObject.init("test/test_sema_vararray_invalid.zb");
+
+    var parser = Parser.init(source_obj);
+    const AST = try parser.parse();
+
+    var sema = SemanticAnalysis.init(source_obj);
+
+    try testing.expectError(error.SemanticInvalidArraySubtype, sema.analyze(AST));
+}

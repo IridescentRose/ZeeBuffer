@@ -247,18 +247,72 @@ fn add_struct_entries(self: *Self, ast: AST, ir: *IR) !void {
                 }
             } else if (f.len_kind == 4) {
                 const name = self.source.token_text_idx(f.kind);
-                if (std.mem.eql(u8, name, "VarArray")) {
-                    kind = .VarArray;
-                    index = f.kind + 2;
-                    extra = f.kind + 3;
-                    //TODO: Check the subtypes
-
-                } else if (std.mem.eql(u8, name, "Array")) {
+                if (std.mem.eql(u8, name, "Array")) {
                     kind = .FixedArray;
                     index = f.kind + 2;
                     extra = f.kind + 3;
 
-                    //TODO: Check the subtypes
+                    const subtype_name = self.source.token_text_idx(@intCast(extra));
+                    for (ir.symbol_table.entries.items) |i| {
+                        if (std.mem.eql(u8, i.name, subtype_name)) {
+                            // Success!
+                            break;
+                        }
+                    } else {
+                        const token = self.source.tokens[f.kind];
+                        const source = self.source.get_source_string(token);
+                        const location = self.source.get_source_location(token);
+
+                        std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
+                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                        std.debug.print("{s}\n", .{source});
+
+                        return error.SemanticInvalidArraySubtype;
+                    }
+                } else if (std.mem.eql(u8, name, "VarArray")) {
+                    kind = .VarArray;
+                    index = f.kind + 2;
+                    extra = f.kind + 3;
+
+                    const varint_name = self.source.token_text_idx(@intCast(index));
+                    for (ir.symbol_table.entries.items) |i| {
+                        if (std.mem.eql(u8, i.name, varint_name)) {
+                            if (std.mem.eql(u8, i.name, "f32") or std.mem.eql(u8, i.name, "f64") or i.type != .BaseType) {
+                                continue;
+                            }
+
+                            // Success!
+                            break;
+                        }
+                    } else {
+                        const token = self.source.tokens[f.kind];
+                        const source = self.source.get_source_string(token);
+                        const location = self.source.get_source_location(token);
+
+                        std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
+                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                        std.debug.print("{s}\n", .{source});
+
+                        return error.SemanticInvalidArraySubtype;
+                    }
+
+                    const subtype_name = self.source.token_text_idx(@intCast(extra));
+                    for (ir.symbol_table.entries.items) |i| {
+                        if (std.mem.eql(u8, i.name, subtype_name)) {
+                            // Success!
+                            break;
+                        }
+                    } else {
+                        const token = self.source.tokens[f.kind];
+                        const source = self.source.get_source_string(token);
+                        const location = self.source.get_source_location(token);
+
+                        std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
+                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                        std.debug.print("{s}\n", .{source});
+
+                        return error.SemanticInvalidArraySubtype;
+                    }
                 } else {
                     const token = self.source.tokens[f.kind];
                     const source = self.source.get_source_string(token);
@@ -280,7 +334,7 @@ fn add_struct_entries(self: *Self, ast: AST, ir: *IR) !void {
                         .UserType => {
                             kind = .User;
                         },
-                        else => unreachable,
+                        else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
                     }
                 } else |_| {
                     std.debug.print("Cannot find type: {s}!\n", .{self.source.token_text_idx(f.kind)});
@@ -335,6 +389,26 @@ pub fn analyze(self: *Self, ast: AST) !IR {
     // Build enum / state symbol table to resolve
     try self.add_state_symbols(ast, &ir);
     try self.add_struct_data_symbols(ast, &ir);
+
+    // Validate Packets
+    for (ir.struct_table.entries.items) |e| {
+        if (e.flag.packet and !e.flag.encrypted and !e.flag.compressed) {
+            const name = e.entries[0].name;
+            if (!std.mem.eql(u8, "len", name) and !std.mem.eql(u8, "id", name)) {
+                std.debug.print("Cannot find len or id in packet!\n", .{});
+
+                const token = self.source.tokens[e.entries[0].type.value];
+                const source = self.source.get_source_string(token);
+                const location = self.source.get_source_location(token);
+
+                std.debug.print("In Struct {s}\n", .{e.name});
+                std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                std.debug.print("{s}\n", .{source});
+
+                return error.SemanticTypeNotFound;
+            }
+        }
+    }
 
     // Run through the protocol and add each struct to the struct table
     try self.add_enum_entries(ast, &ir);

@@ -138,7 +138,7 @@ pub fn tokenize(self: *Self) ![]Token {
                         if (c == pair.char) {
                             break pair.kind;
                         }
-                    } else unreachable, // This can't happen
+                    } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
                     .start = self.curr_index,
                 });
             },
