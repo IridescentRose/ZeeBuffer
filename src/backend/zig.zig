@@ -67,6 +67,32 @@ fn write_state(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
     }
     try writer.print("}};\n\n", .{});
 }
+fn write_struct_deinit(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, struct_name: []const u8) !void {
+    _ = self;
+    try writer.print("\n    pub fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{struct_name});
+
+    var allocator_used: bool = false;
+
+    for (e.entries) |entry| {
+        switch (entry.type.type) {
+            .User => {
+                try writer.print("        self.{s}.deinit(allocator);\n", .{entry.name});
+                allocator_used = true;
+            },
+            .VarArray => {
+                try writer.print("        allocator.free(self.{s});\n", .{entry.name});
+                allocator_used = true;
+            },
+            else => {},
+        }
+    }
+
+    if (!allocator_used) {
+        try writer.print("        _ = self;\n", .{});
+        try writer.print("        _ = allocator;\n", .{});
+    }
+    try writer.print("    }}\n", .{});
+}
 
 fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, struct_name: []const u8) !void {
     const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
@@ -261,6 +287,9 @@ fn write_struct(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Structure) !voi
     // Read
     try self.write_struct_read(writer, e, struct_name);
 
+    // Deinit
+    try self.write_struct_deinit(writer, e, struct_name);
+
     try writer.print("}};\n\n", .{});
 }
 
@@ -276,6 +305,11 @@ fn write_enum(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Enum) !void {
     }
 
     try self.write_enum_read(writer, e, e.name);
+
+    try writer.print("\n    pub fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{e.name});
+    try writer.print("        _ = self;\n", .{});
+    try writer.print("        _ = allocator;\n", .{});
+    try writer.print("    }}\n", .{});
 
     try writer.print("}};\n\n", .{});
 }
@@ -317,6 +351,7 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
             try writer.print("                    {} => {{\n", .{e.value});
             try writer.print("                        var s : {s} = undefined;\n", .{e.oname});
             try writer.print("                        try s.read(reader, allocator);\n", .{});
+            try writer.print("                        defer s.deinit(allocator);\n", .{});
             try writer.print("                        if(self.handlers.{s}_handler) |pfn| try pfn(self.user_context, &s);\n", .{e.oname});
             try writer.print("                    }},\n", .{});
         }
