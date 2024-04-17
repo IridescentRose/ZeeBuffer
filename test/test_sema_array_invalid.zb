@@ -1,0 +1,16 @@
+@endian little
+@direction in 
+
+@state {
+    Connected : 0,
+}
+
+@packet {
+    len: VarInt,
+    id: u8,
+    data: Event(id),
+}
+
+MyPacket : In(0) State(Connected) {
+    data: Array(i32, Account),
+}
