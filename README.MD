@@ -25,59 +25,35 @@ The [protocol](./PROTOCOL.MD) is defined in the `.zb` protocol file. This protoc
 # Example Schema
 
 ```zb
-# This is a comment
-
-# Specify the target endianness
 @endian big
-
-# Specify the protocol's perspective
 @direction in
 
-# Define the valid connection states
-# 0 is the default state
 @state {
     Handshake: 0,
     Connected: 1,
 }
 
-# Packet defines the data being input
-# Packets start with a length field or an id field
-# Length-preceeded packets are read into a buffer
-# The buffer is bounds checked while intepretting
-# ID-based packets are read in single-shot
 @packet {
     len: VarInt,
     id: u8,
-
-    # This is the event dispatcher, which uses ID to switch upon the defined packets
     event: Event(id),
 }
 
-# This is plain ol' data.
 ClientVersion {
     major: u16,
     minor: u16,
 }
 
-# This is an enum
-# It has an integral backing type of fixed length
 Mode : Enum(u8) {
     Viewer: 0,
     Admin: 1,
 }
 
-# This is an input event, when read this is dispatched
-# The In(), Out(), or InOut() attributes determine the accepted directions of a packet
-# Events with the same name are permitted if their input and output attributes differ
-# The argument to the attributes is the ID number of the packet
-# The State() attribute determines if this packet is valid for the state.
-# Packets may have overlapping ID numbers if in different states
-# If State() is not present, the packet applies in all states
 HandshakeEvent : In(0) State(Handshake) {
     version: ClientVersion,
     mode: Mode,
-    username: Array(16, u8) # Arrays are specified by length, then type -- any type including user types are valid
-    password: VarArray(VarInt, u8) # VarArrays are specified by the integral length, then the same type rules apply
+    username: Array(16, u8)
+    password: VarArray(VarInt, u8)
 }
 ```
 
