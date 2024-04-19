@@ -1,16 +1,90 @@
 # ZeeBuffers
 
-ZeeBuffers is a protocol for serializing and deserializing data in a stateful client-server connection. It is designed to be simple, fast, and easy to implement. It is designed to be used in a wide variety of applications, from embedded systems to high-performance servers. 
+ZeeBuffers is a cross-platform protocol specification language for serializing and deserializing structured data in a stateful client-server connection.
+
+It produces bindings in Zig currently, although [a C code generator is planned](https://github.com/IridescentRose/ZeeBuffer/issues/7)
+
+# Why use ZeeBuffers
+
+Use ZeeBuffers if:
+* Integrating with existing applications or the existing protocol cannot be modified
+* A protocol requires parsing/unpacking and repacking in specific ways
+* Endianness may differ between sides of the connection, or is necessary to swap
+* Connections don't necessarily need to be socket based; e.g. SPI, UART, etc.
+
+ZeeBuffers is:
+* Multiplatform, with no platform-specific dependencies
+* Small, with a single file generated of code
+* Routable, with an interface to easily read packets and pass them to their respective handlers
+* Easy to use, with each structure being converted from network to native and back when necessary
 
 # Usage
 
-The [protocol](./PROTOCOL.MD) is defined in the `.zb` protocol file. This protocol is a single file that defines the messages that can be sent between the client and server. The protocol file is then compiled to the target language using the `zb` compiler. The compiler generates code that can be used to send and receive messages in the target language.
+The [protocol](./PROTOCOL.MD) is defined in the `.zb` protocol file. This protocol is a single file that defines the messages that can be sent between the client and server. The protocol file is then compiled to the target language using the `zbc` compiler. The compiler generates code that can be used to send and receive messages in the target language.
 
-To use in the target language you must pass a function to send or receive data, making ZeeBuffers compatible with any transport layer. ZeeBuffers does not handle the transport layer, only the serialization and deserialization of messages; decisions about how to send and receive data are left to the user. 
+# Example Schema
 
-The protocol when compiled to your target language allows you to register listeners or "routes" that are called when a message is received. This lets you declaratively define a server or client that can handle messages without needing to write a lot of boilerplate code.
+```zb
+@endian big
+@direction in
 
-ZeeBuffers has an optional support for generating basic client and server implementations using network sockets. This is useful for testing and prototyping, but it is not recommended for production use, or advanced use cases.
+@state {
+    Handshake: 0,
+    Connected: 1,
+}
+
+@packet {
+    len: VarInt,
+    id: u8,
+    event: Event(id),
+}
+
+ClientVersion {
+    major: u16,
+    minor: u16,
+}
+
+Mode : Enum(u8) {
+    Viewer: 0,
+    Admin: 1,
+}
+
+HandshakeEvent : In(0) State(Handshake) {
+    version: ClientVersion,
+    mode: Mode,
+    username: Array(16, u8)
+    password: VarArray(VarInt, u8)
+}
+```
+
+# Example Program
+
+```zig
+const std = @import("std");
+const zb = @import("zeebuffer.zig"); // Include generated file
+
+fn handshake(ctx: ?*anyopaque, event: *zb.InHandshakeEventHandshake) anyerror!void {
+
+}
+
+pub fn main() !void {
+    const allocator = // ...
+    var reader = // Anything with an AnyReader interface
+    var writer = // Anything with an AnyWriter interface
+
+    var pid: u32 = 1337; // Some data that needs to be shared
+
+    var proto = zb.Protocol.init(.{
+        .HandshakeEvent_handler = &handshake,
+    }, reader, writer);
+    proto.user_context = &pid;
+
+    while(true) {
+        try proto.poll(allocator);
+    }
+}
+
+```
 
 # ¿Parker Jones?
 
