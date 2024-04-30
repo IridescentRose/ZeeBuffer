@@ -542,8 +542,6 @@ fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) ![]const u8 
         }
     }
 
-    std.debug.print("{s}\n", .{e.name});
-
     var name: []const u8 = e.name;
     if (e.flag.event) {
         // zig fmt: off
