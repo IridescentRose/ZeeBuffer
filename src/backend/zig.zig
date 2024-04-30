@@ -295,7 +295,7 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                                 if (std.mem.eql(u8, varint, "VarInt")) {
                                     try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = value; len += 1; try writer.writeAll(buffer[0..len]); }}\n", .{entry.name});
                                 } else {
-                                    try writer.print("        try writer.writeInt({s}, {s}, {s});\n", .{ varint, entry.name, endian_string });
+                                    try writer.print("        try writer.writeInt({s}, @intCast(self.{s}.len), {s});\n", .{ varint, entry.name, endian_string });
                                 }
                             },
                             else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
