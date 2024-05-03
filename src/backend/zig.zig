@@ -118,7 +118,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                 } else if (std.mem.eql(u8, base, "f64")) {
                     try writer.print("        self.{s} = @bitCast(try reader.readInt(u64, {s}));\n", .{ entry.name, endian_string });
                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                    try writer.print("        self.{s} = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{entry.name});
+                    try writer.print("        self.{s} = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{entry.name});
                 } else if (std.mem.eql(u8, base, "bool")) {
                     try writer.print("        self.{s} = try reader.readByte() == 0;\n", .{entry.name});
                 } else {
@@ -142,7 +142,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                                 } else if (std.mem.eql(u8, base, "f64")) {
                                     try writer.print("            e.* = @bitCast(try reader.readInt(u64, {s}));\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{});
+                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{});
                                 } else {
                                     try writer.print("            e.* = try reader.readInt({s}, {s});\n", .{ base, endian_string });
                                 }
@@ -166,7 +166,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                         switch (i.type) {
                             .BaseType => {
                                 if (std.mem.eql(u8, varint, "VarInt")) {
-                                    try writer.print("        const {s}_len = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{entry.name});
+                                    try writer.print("        const {s}_len = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{entry.name});
                                 } else {
                                     try writer.print("        const {s}_len = try reader.readInt({s}, {s});\n", .{ entry.name, varint, endian_string });
                                 }
@@ -191,7 +191,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                                 } else if (std.mem.eql(u8, base, "f64")) {
                                     try writer.print("            e.* = @bitCast(try reader.readInt(u64, {s}));\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{});
+                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{});
                                 } else {
                                     try writer.print("            e.* = try reader.readInt({s}, {s});\n", .{ base, endian_string });
                                 }
@@ -210,7 +210,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
             else => {
                 if (e.flag.packet) {
                     const s = self.ir.source.token_text_idx(entry.type.value);
-                    try writer.print("        try protocol.dispatch_reader(reader, allocator, self.{s});\n", .{s});
+                    try writer.print("        try protocol.dispatch_read(reader, allocator, self.{s});\n", .{s});
                     allocator_used = true;
                 } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues");
             },
@@ -446,6 +446,15 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
         if (e.flag.packet and !e.flag.encrypted and !e.flag.compressed) {
             const name = e.entries[0].name;
             if (std.mem.eql(u8, "len", name)) {
+                if (e.entries[0].type.type != .Base) unreachable;
+
+                const base = self.ir.symbol_table.entries.items[e.entries[0].type.value].name;
+                if (std.mem.eql(u8, base, "VarInt")) {
+                    try writer.print(len_var_get, .{});
+                } else {
+                    try writer.print(len_fixed_get, .{base});
+                }
+
                 try writer.print(len_prefix, .{});
             } else if (std.mem.eql(u8, "id", name)) {
                 try writer.print(id_prefix, .{});
@@ -638,14 +647,24 @@ const proto_header =
     \\        var packet: Packet = undefined;
     \\
 ;
+
+pub const len_var_get =
+    \\        packet.len = blk: {{ var value : usize = 0; var b : usize = try self.src_reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try self.src_reader.readByte();}} value |= b; break :blk @intCast(value); }};
+;
+
+pub const len_fixed_get =
+    \\        packet.len = try self.src_reader.readInt({s}, .little);
+;
+
 pub const len_prefix =
     \\        
-    \\        packet.len = blk: {{ var value : usize = 0; var b : usize = try self.src_reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try self.src_reader.readByte();}} value |= b; break :blk value; }};
     \\
     \\        // Read the packet all into a buffer
     \\        const packet_len : usize = @intCast(packet.len);
-    \\        const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
+    \\        const buffer = try allocator.alloc(u8, packet_len);
     \\        defer allocator.free(buffer);
+    \\
+    \\        _ = try self.src_reader.readAll(buffer);
     \\
     \\        var fbstream = std.io.fixedBufferStream(buffer);
     \\        const fbreader = fbstream.reader().any();
