@@ -226,13 +226,15 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
     const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
 
     var start: usize = 0;
+    var writer_name: []const u8 = "writer";
+
     if (!e.flag.packet) {
         try writer.print("\n    pub fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
     } else {
         try writer.print("\n    pub fn write(self: *{s}, writer: std.io.AnyWriter, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
-        if (std.mem.eql(u8, e.entries[0].name, "len")) {
-            start = 1;
-        }
+        try writer.print("        var array = std.ArrayList(u8).init(allocator); defer array.deinit();\n", .{});
+        start = 1;
+        writer_name = "array.writer()";
     }
 
     for (e.entries[start..]) |entry| {
@@ -241,22 +243,22 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                 const base = self.ir.symbol_table.entries.items[entry.type.value].name;
 
                 if (std.mem.eql(u8, base, "f32")) {
-                    try writer.print("        try writer.writeInt(u32, @bitCast(self.{s}), {s});\n", .{ entry.name, endian_string });
+                    try writer.print("        try {s}.writeInt(u32, @bitCast(self.{s}), {s});\n", .{ writer_name, entry.name, endian_string });
                 } else if (std.mem.eql(u8, base, "f64")) {
-                    try writer.print("        try writer.writeInt(u64, @bitCast(self.{s}), {s});\n", .{ entry.name, endian_string });
+                    try writer.print("        try {s}.writeInt(u64, @bitCast(self.{s}), {s});\n", .{ writer_name, entry.name, endian_string });
                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                    try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = value; len += 1; try writer.writeAll(buffer[0..len]); }}\n", .{entry.name});
+                    try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try {s}.writeAll(buffer[0..len]); }}\n", .{ entry.name, writer_name });
                 } else if (std.mem.eql(u8, base, "bool")) {
-                    try writer.print("        try writer.writeByte(if(self.{s}) 1 else 0);\n", .{entry.name});
+                    try writer.print("        try {s}.writeByte(if(self.{s}) 1 else 0);\n", .{ writer_name, entry.name });
                 } else {
-                    try writer.print("        try writer.writeInt({s}, self.{s}, {s});\n", .{ base, entry.name, endian_string });
+                    try writer.print("        try {s}.writeInt({s}, self.{s}, {s});\n", .{ writer_name, base, entry.name, endian_string });
                 }
             },
             .User => {
                 try writer.print("        try self.{s}.write(writer);\n", .{entry.name});
             },
             .FixedArray => {
-                try writer.print("        for(&self.{s}) |*e| {{\n", .{entry.name});
+                try writer.print("        for(self.{s}) |e| {{\n", .{entry.name});
                 const base = self.ir.source.token_text_idx(entry.type.extra);
 
                 for (self.ir.symbol_table.entries.items) |i| {
@@ -268,7 +270,7 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                                 } else if (std.mem.eql(u8, base, "f64")) {
                                     try writer.print("            try writer.writeInt(u64, @bitCast(e), {s});\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                                    try writer.print("            var buffer : [10]u8 = undefined; var len : usize = 0; var value = e; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = value; len += 1; try writer.writeAll(buffer[0..len])\n", .{});
+                                    try writer.print("            var buffer : [10]u8 = undefined; var len : usize = 0; var value = e; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try writer.writeAll(buffer[0..len])\n", .{});
                                 } else if (std.mem.eql(u8, base, "bool")) {
                                     try writer.print("            try writer.writeByte(if(e) 1 else 0);\n", .{});
                                 } else {
@@ -293,7 +295,7 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                         switch (i.type) {
                             .BaseType => {
                                 if (std.mem.eql(u8, varint, "VarInt")) {
-                                    try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = value; len += 1; try writer.writeAll(buffer[0..len]); }}\n", .{entry.name});
+                                    try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try array.writer().writeAll(buffer[0..len]); }}\n", .{entry.name});
                                 } else {
                                     try writer.print("        try writer.writeInt({s}, @intCast(self.{s}.len), {s});\n", .{ varint, entry.name, endian_string });
                                 }
@@ -303,7 +305,7 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                     }
                 }
 
-                try writer.print("        for(&self.{s}) |*e| {{\n", .{entry.name});
+                try writer.print("        for(self.{s}) |*e| {{\n", .{entry.name});
                 const base = self.ir.source.token_text_idx(entry.type.extra);
 
                 for (self.ir.symbol_table.entries.items) |i| {
@@ -311,15 +313,15 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                         switch (i.type) {
                             .BaseType => {
                                 if (std.mem.eql(u8, base, "f32")) {
-                                    try writer.print("            try writer.writeInt(u32, @bitCast(e), {s});\n", .{endian_string});
+                                    try writer.print("            try writer.writeInt(u32, @bitCast(e.*), {s});\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "f64")) {
-                                    try writer.print("            try writer.writeInt(u64, @bitCast(e), {s});\n", .{endian_string});
+                                    try writer.print("            try writer.writeInt(u64, @bitCast(e.*), {s});\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                                    try writer.print("            {{var buffer : [10]u8 = undefined; var len : usize = 0; var value = e; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = value; len += 1; try writer.writeAll(buffer[0..len]);}}\n", .{});
+                                    try writer.print("            {{var buffer : [10]u8 = undefined; var len : usize = 0; var value = e.*; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try writer.writeAll(buffer[0..len]);}}\n", .{});
                                 } else if (std.mem.eql(u8, base, "bool")) {
-                                    try writer.print("            try writer.writeByte(if(e) 1 else 0);\n", .{});
+                                    try writer.print("            try writer.writeByte(if(e.*) 1 else 0);\n", .{});
                                 } else {
-                                    try writer.print("            try writer.writeInt({s}, e, {s});\n", .{ base, endian_string });
+                                    try writer.print("            try writer.writeInt({s}, e.*, {s});\n", .{ base, endian_string });
                                 }
                             },
                             .UserType => {
@@ -335,13 +337,21 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
             else => {
                 if (e.flag.packet) {
                     const s = self.ir.source.token_text_idx(entry.type.value);
+                    const first_entry = e.entries[0];
+                    if (std.mem.eql(u8, first_entry.name, "len")) {
+                        try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s});\n", .{ s, entry.name });
 
-                    if (std.mem.eql(u8, e.entries[0].name, "len")) {
-                        try writer.print("        var array = std.ArrayList(u8).init(allocator); defer array.deinit(); try protocol.dispatch_write(array.writer(), self.{s}, self.event);\n", .{s});
-                        try writer.print("        {{var buffer : [10]u8 = undefined; var len : usize = 0; var value = array.items.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = value; len += 1; try writer.writeAll(buffer[0..len]);}}\n", .{});
+                        const first_base_type = self.ir.symbol_table.entries.items[first_entry.type.value].name;
+
+                        if (std.mem.eql(u8, first_base_type, "VarInt")) {
+                            try writer.print("        {{var buffer : [10]u8 = undefined; var len : usize = 0; var value = array.items.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try writer.writeAll(buffer[0..len]);}}\n", .{});
+                        } else {
+                            try writer.print("        try writer.writeInt({s}, array.items.len, {s});\n", .{ first_base_type, endian_string });
+                        }
                         try writer.print("        try writer.writeAll(array.items);\n", .{});
                     } else {
-                        try writer.print("        try protocol.dispatch_write(writer, self.{s}, self.event); _ = allocator;\n", .{s});
+                        try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s}); _ = allocator;\n", .{ s, entry.name });
+                        try writer.print("        try writer.writeAll(array.items);\n", .{});
                     }
                 } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues");
             },
@@ -506,9 +516,9 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
         try writer.print("                switch(id) {{\n", .{});
 
         for (struct_pair.entries) |e| {
-            const my_dir = self.ir.direction == .Out;
+            const my_dir = self.ir.direction == .In;
             const is_in = std.mem.containsAtLeast(u8, e.oname, 1, "In");
-            const is_out = std.mem.containsAtLeast(u8, e.oname, 1, "Out") or std.mem.containsAtLeast(u8, e.oname, 1, "InOut");
+            const is_out = std.mem.containsAtLeast(u8, e.oname, 1, "Out");
 
             if ((!my_dir or !is_out) and (my_dir or !is_in)) continue;
 
@@ -598,12 +608,16 @@ fn write_handle_table(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
                     const name = try std.fmt.allocPrint(util.allocator(), "{s}{s}{s}", .{ inout, e.name, state.name });
                     const new_name = try std.fmt.allocPrint(util.allocator(), "P_{s}", .{name});
 
-                    try writer.print("   {s}_handler: ?*const fn (ctx: ?*anyopaque, event: *{s}) anyerror!void = null,\n", .{ name, name });
                     try state_array.append(.{
                         .name = new_name,
                         .oname = name,
                         .value = @bitCast(e.event),
                     });
+
+                    if (e.flag.in and !e.flag.out and self.ir.direction == .Out) continue;
+                    if (e.flag.out and !e.flag.in and self.ir.direction == .In) continue;
+
+                    try writer.print("   {s}_handler: ?*const fn (ctx: ?*anyopaque, event: *{s}) anyerror!void = null,\n", .{ name, name });
                 }
             }
         }
