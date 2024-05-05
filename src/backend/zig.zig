@@ -69,7 +69,7 @@ fn write_state(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
 }
 fn write_struct_deinit(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, struct_name: []const u8) !void {
     _ = self;
-    try writer.print("\n    pub fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{struct_name});
+    try writer.print("\n    pub inline fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{struct_name});
 
     var allocator_used: bool = false;
 
@@ -99,9 +99,9 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
 
     var start: usize = 0;
     if (!e.flag.packet) {
-        try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
     } else {
-        try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
         if (std.mem.eql(u8, e.entries[0].name, "len")) {
             start = 1;
         }
@@ -229,9 +229,9 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
     var writer_name: []const u8 = "writer";
 
     if (!e.flag.packet) {
-        try writer.print("\n    pub fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
     } else {
-        try writer.print("\n    pub fn write(self: *{s}, writer: std.io.AnyWriter, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn write(self: *{s}, writer: std.io.AnyWriter, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
         try writer.print("        var array = std.ArrayList(u8).init(allocator); defer array.deinit();\n", .{});
         start = 1;
         writer_name = "array.writer()";
@@ -363,7 +363,7 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
 fn write_enum_read(self: *Self, writer: std.io.AnyWriter, e: IR.Enum, struct_name: []const u8) !void {
     const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
 
-    try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
+    try writer.print("\n    pub inline fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
 
     const base = self.ir.symbol_table.entries.items[e.type].name;
     try writer.print("        self.* = @enumFromInt(try reader.readInt({s}, {s}));\n", .{ base, endian_string });
@@ -375,7 +375,7 @@ fn write_enum_read(self: *Self, writer: std.io.AnyWriter, e: IR.Enum, struct_nam
 fn write_enum_write(self: *Self, writer: std.io.AnyWriter, e: IR.Enum, struct_name: []const u8) !void {
     const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
 
-    try writer.print("\n    pub fn write(self: {s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
+    try writer.print("\n    pub inline fn write(self: {s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
 
     const base = self.ir.symbol_table.entries.items[e.type].name;
     try writer.print("        try writer.writeInt({s}, @intFromEnum(self) , {s});\n", .{ base, endian_string });
@@ -439,7 +439,7 @@ fn write_enum(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Enum) !void {
     try self.write_enum_read(writer, e, e.name);
     try self.write_enum_write(writer, e, e.name);
 
-    try writer.print("\n    pub fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{e.name});
+    try writer.print("\n    pub inline fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{e.name});
     try writer.print("        _ = self;\n", .{});
     try writer.print("        _ = allocator;\n", .{});
     try writer.print("    }}\n", .{});
@@ -644,7 +644,7 @@ const proto_header =
     \\
     \\    const Self = @This();
     \\
-    \\    pub fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
+    \\    pub inline fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
     \\        return .{{ 
     \\            .handlers = handlers,
     \\            .src_reader = reader,
@@ -652,7 +652,7 @@ const proto_header =
     \\        }};
     \\    }}
     \\
-    \\    pub fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
+    \\    pub inline fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
     \\        if(self.compressed or self.encrypted) {{
     \\            @panic("Compression and encryption not supported yet");  
     \\        }}
@@ -692,12 +692,12 @@ pub const id_prefix =
 pub const dispatch_read_stub =
     \\    }}
     \\
-    \\    pub fn dispatch_read(self: *Self, reader: std.io.AnyReader, allocator: std.mem.Allocator, id: usize) !void {{
+    \\    pub inline fn dispatch_read(self: *Self, reader: std.io.AnyReader, allocator: std.mem.Allocator, id: usize) !void {{
     \\
 ;
 
 pub const dispatch_write_stub =
     \\
-    \\    pub fn dispatch_write(self: *Self, writer: std.io.AnyWriter, id: usize, ctx: *anyopaque) !void {{
+    \\    pub inline fn dispatch_write(self: *Self, writer: std.io.AnyWriter, id: usize, ctx: *anyopaque) !void {{
     \\
 ;
