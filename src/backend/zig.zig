@@ -69,7 +69,7 @@ fn write_state(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
 }
 fn write_struct_deinit(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, struct_name: []const u8) !void {
     _ = self;
-    try writer.print("\n    pub fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{struct_name});
+    try writer.print("\n    pub inline fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{struct_name});
 
     var allocator_used: bool = false;
 
@@ -99,9 +99,9 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
 
     var start: usize = 0;
     if (!e.flag.packet) {
-        try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
     } else {
-        try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
         if (std.mem.eql(u8, e.entries[0].name, "len")) {
             start = 1;
         }
@@ -118,7 +118,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                 } else if (std.mem.eql(u8, base, "f64")) {
                     try writer.print("        self.{s} = @bitCast(try reader.readInt(u64, {s}));\n", .{ entry.name, endian_string });
                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                    try writer.print("        self.{s} = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{entry.name});
+                    try writer.print("        self.{s} = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{entry.name});
                 } else if (std.mem.eql(u8, base, "bool")) {
                     try writer.print("        self.{s} = try reader.readByte() == 0;\n", .{entry.name});
                 } else {
@@ -142,7 +142,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                                 } else if (std.mem.eql(u8, base, "f64")) {
                                     try writer.print("            e.* = @bitCast(try reader.readInt(u64, {s}));\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{});
+                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{});
                                 } else {
                                     try writer.print("            e.* = try reader.readInt({s}, {s});\n", .{ base, endian_string });
                                 }
@@ -166,7 +166,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                         switch (i.type) {
                             .BaseType => {
                                 if (std.mem.eql(u8, varint, "VarInt")) {
-                                    try writer.print("        const {s}_len = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{entry.name});
+                                    try writer.print("        const {s}_len = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{entry.name});
                                 } else {
                                     try writer.print("        const {s}_len = try reader.readInt({s}, {s});\n", .{ entry.name, varint, endian_string });
                                 }
@@ -191,7 +191,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
                                 } else if (std.mem.eql(u8, base, "f64")) {
                                     try writer.print("            e.* = @bitCast(try reader.readInt(u64, {s}));\n", .{endian_string});
                                 } else if (std.mem.eql(u8, base, "VarInt")) {
-                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk value; }};\n", .{});
+                                    try writer.print("            e.* = blk: {{ var value : usize = 0; var b : usize = try reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try reader.readByte();}} value |= b; break :blk @intCast(value); }};\n", .{});
                                 } else {
                                     try writer.print("            e.* = try reader.readInt({s}, {s});\n", .{ base, endian_string });
                                 }
@@ -210,7 +210,7 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
             else => {
                 if (e.flag.packet) {
                     const s = self.ir.source.token_text_idx(entry.type.value);
-                    try writer.print("        try protocol.dispatch(reader, allocator, self.{s});\n", .{s});
+                    try writer.print("        try protocol.dispatch_read(reader, allocator, self.{s});\n", .{s});
                     allocator_used = true;
                 } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues");
             },
@@ -222,15 +222,163 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
     try writer.print("    }}\n", .{});
 }
 
+fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, struct_name: []const u8) !void {
+    const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
+
+    var start: usize = 0;
+    var writer_name: []const u8 = "writer";
+
+    if (!e.flag.packet) {
+        try writer.print("\n    pub inline fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
+    } else {
+        try writer.print("\n    pub inline fn write(self: *{s}, writer: std.io.AnyWriter, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
+        try writer.print("        var array = std.ArrayList(u8).init(allocator); defer array.deinit();\n", .{});
+        start = 1;
+        writer_name = "array.writer()";
+    }
+
+    for (e.entries[start..]) |entry| {
+        switch (entry.type.type) {
+            .Base => {
+                const base = self.ir.symbol_table.entries.items[entry.type.value].name;
+
+                if (std.mem.eql(u8, base, "f32")) {
+                    try writer.print("        try {s}.writeInt(u32, @bitCast(self.{s}), {s});\n", .{ writer_name, entry.name, endian_string });
+                } else if (std.mem.eql(u8, base, "f64")) {
+                    try writer.print("        try {s}.writeInt(u64, @bitCast(self.{s}), {s});\n", .{ writer_name, entry.name, endian_string });
+                } else if (std.mem.eql(u8, base, "VarInt")) {
+                    try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try {s}.writeAll(buffer[0..len]); }}\n", .{ entry.name, writer_name });
+                } else if (std.mem.eql(u8, base, "bool")) {
+                    try writer.print("        try {s}.writeByte(if(self.{s}) 1 else 0);\n", .{ writer_name, entry.name });
+                } else {
+                    try writer.print("        try {s}.writeInt({s}, self.{s}, {s});\n", .{ writer_name, base, entry.name, endian_string });
+                }
+            },
+            .User => {
+                try writer.print("        try self.{s}.write(writer);\n", .{entry.name});
+            },
+            .FixedArray => {
+                try writer.print("        for(self.{s}) |e| {{\n", .{entry.name});
+                const base = self.ir.source.token_text_idx(entry.type.extra);
+
+                for (self.ir.symbol_table.entries.items) |i| {
+                    if (std.mem.eql(u8, base, i.name)) {
+                        switch (i.type) {
+                            .BaseType => {
+                                if (std.mem.eql(u8, base, "f32")) {
+                                    try writer.print("            try writer.writeInt(u32, @bitCast(e), {s});\n", .{endian_string});
+                                } else if (std.mem.eql(u8, base, "f64")) {
+                                    try writer.print("            try writer.writeInt(u64, @bitCast(e), {s});\n", .{endian_string});
+                                } else if (std.mem.eql(u8, base, "VarInt")) {
+                                    try writer.print("            var buffer : [10]u8 = undefined; var len : usize = 0; var value = e; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try writer.writeAll(buffer[0..len])\n", .{});
+                                } else if (std.mem.eql(u8, base, "bool")) {
+                                    try writer.print("            try writer.writeByte(if(e) 1 else 0);\n", .{});
+                                } else {
+                                    try writer.print("            try writer.writeInt({s}, e, {s});\n", .{ base, endian_string });
+                                }
+                            },
+                            .UserType => {
+                                try writer.print("            try e.write(writer);\n", .{});
+                            },
+                            else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
+                        }
+                    }
+                }
+
+                try writer.print("        }}\n", .{});
+            },
+            .VarArray => {
+                const varint = self.ir.source.token_text_idx(entry.type.value);
+
+                for (self.ir.symbol_table.entries.items) |i| {
+                    if (std.mem.eql(u8, varint, i.name)) {
+                        switch (i.type) {
+                            .BaseType => {
+                                if (std.mem.eql(u8, varint, "VarInt")) {
+                                    try writer.print("        {{ var buffer : [10]u8 = undefined; var len : usize = 0; var value = self.{s}.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try array.writer().writeAll(buffer[0..len]); }}\n", .{entry.name});
+                                } else {
+                                    try writer.print("        try writer.writeInt({s}, @intCast(self.{s}.len), {s});\n", .{ varint, entry.name, endian_string });
+                                }
+                            },
+                            else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
+                        }
+                    }
+                }
+
+                try writer.print("        for(self.{s}) |*e| {{\n", .{entry.name});
+                const base = self.ir.source.token_text_idx(entry.type.extra);
+
+                for (self.ir.symbol_table.entries.items) |i| {
+                    if (std.mem.eql(u8, base, i.name)) {
+                        switch (i.type) {
+                            .BaseType => {
+                                if (std.mem.eql(u8, base, "f32")) {
+                                    try writer.print("            try writer.writeInt(u32, @bitCast(e.*), {s});\n", .{endian_string});
+                                } else if (std.mem.eql(u8, base, "f64")) {
+                                    try writer.print("            try writer.writeInt(u64, @bitCast(e.*), {s});\n", .{endian_string});
+                                } else if (std.mem.eql(u8, base, "VarInt")) {
+                                    try writer.print("            {{var buffer : [10]u8 = undefined; var len : usize = 0; var value = e.*; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try writer.writeAll(buffer[0..len]);}}\n", .{});
+                                } else if (std.mem.eql(u8, base, "bool")) {
+                                    try writer.print("            try writer.writeByte(if(e.*) 1 else 0);\n", .{});
+                                } else {
+                                    try writer.print("            try writer.writeInt({s}, e.*, {s});\n", .{ base, endian_string });
+                                }
+                            },
+                            .UserType => {
+                                try writer.print("            try e.write(writer);\n", .{});
+                            },
+                            else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
+                        }
+                    }
+                }
+
+                try writer.print("        }}\n", .{});
+            },
+            else => {
+                if (e.flag.packet) {
+                    const s = self.ir.source.token_text_idx(entry.type.value);
+                    const first_entry = e.entries[0];
+                    if (std.mem.eql(u8, first_entry.name, "len")) {
+                        try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s});\n", .{ s, entry.name });
+
+                        const first_base_type = self.ir.symbol_table.entries.items[first_entry.type.value].name;
+
+                        if (std.mem.eql(u8, first_base_type, "VarInt")) {
+                            try writer.print("        {{var buffer : [10]u8 = undefined; var len : usize = 0; var value = array.items.len; while((value & 0x80) != 0) {{buffer[len] = @truncate(value); len += 1; value >>= 7; }} buffer[len] = @truncate(value); len += 1; try writer.writeAll(buffer[0..len]);}}\n", .{});
+                        } else {
+                            try writer.print("        try writer.writeInt({s}, array.items.len, {s});\n", .{ first_base_type, endian_string });
+                        }
+                        try writer.print("        try writer.writeAll(array.items);\n", .{});
+                    } else {
+                        try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s}); _ = allocator;\n", .{ s, entry.name });
+                        try writer.print("        try writer.writeAll(array.items);\n", .{});
+                    }
+                } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues");
+            },
+        }
+    }
+    try writer.print("    }}\n", .{});
+}
+
 fn write_enum_read(self: *Self, writer: std.io.AnyWriter, e: IR.Enum, struct_name: []const u8) !void {
     const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
 
-    try writer.print("\n    pub fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
+    try writer.print("\n    pub inline fn read(self: *{s}, reader: std.io.AnyReader, allocator: std.mem.Allocator) !void {{\n", .{struct_name});
 
     const base = self.ir.symbol_table.entries.items[e.type].name;
     try writer.print("        self.* = @enumFromInt(try reader.readInt({s}, {s}));\n", .{ base, endian_string });
 
     try writer.print("        _ = allocator;\n", .{});
+    try writer.print("    }}\n", .{});
+}
+
+fn write_enum_write(self: *Self, writer: std.io.AnyWriter, e: IR.Enum, struct_name: []const u8) !void {
+    const endian_string = if (self.ir.endian == .Big) ".big" else ".little";
+
+    try writer.print("\n    pub inline fn write(self: {s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
+
+    const base = self.ir.symbol_table.entries.items[e.type].name;
+    try writer.print("        try writer.writeInt({s}, @intFromEnum(self) , {s});\n", .{ base, endian_string });
     try writer.print("    }}\n", .{});
 }
 
@@ -242,8 +390,7 @@ fn write_struct(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Structure) !voi
         const eType = entry.type;
 
         const eTypename = switch (eType.type) {
-            .Base,
-            => blk: {
+            .Base => blk: {
                 const base = self.ir.symbol_table.entries.items[eType.value].name;
 
                 if (std.mem.eql(u8, base, "VarInt")) {
@@ -270,6 +417,7 @@ fn write_struct(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Structure) !voi
 
     // Read
     try self.write_struct_read(writer, e, struct_name);
+    try self.write_struct_write(writer, e, struct_name);
 
     // Deinit
     try self.write_struct_deinit(writer, e, struct_name);
@@ -289,8 +437,9 @@ fn write_enum(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Enum) !void {
     }
 
     try self.write_enum_read(writer, e, e.name);
+    try self.write_enum_write(writer, e, e.name);
 
-    try writer.print("\n    pub fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{e.name});
+    try writer.print("\n    pub inline fn deinit(self: *{s}, allocator: std.mem.Allocator) void {{\n", .{e.name});
     try writer.print("        _ = self;\n", .{});
     try writer.print("        _ = allocator;\n", .{});
     try writer.print("    }}\n", .{});
@@ -307,6 +456,15 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
         if (e.flag.packet and !e.flag.encrypted and !e.flag.compressed) {
             const name = e.entries[0].name;
             if (std.mem.eql(u8, "len", name)) {
+                if (e.entries[0].type.type != .Base) unreachable;
+
+                const base = self.ir.symbol_table.entries.items[e.entries[0].type.value].name;
+                if (std.mem.eql(u8, base, "VarInt")) {
+                    try writer.print(len_var_get, .{});
+                } else {
+                    try writer.print(len_fixed_get, .{base});
+                }
+
                 try writer.print(len_prefix, .{});
             } else if (std.mem.eql(u8, "id", name)) {
                 try writer.print(id_prefix, .{});
@@ -315,7 +473,9 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
         }
     }
 
-    try writer.print(dispatch_stub, .{});
+    // Reader Structure
+
+    try writer.print(dispatch_read_stub, .{});
     try writer.print("        switch(self.state) {{\n", .{});
 
     for (self.state_struct_array.items) |struct_pair| {
@@ -334,6 +494,37 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
             try writer.print("                        try s.read(reader, allocator);\n", .{});
             try writer.print("                        defer s.deinit(allocator);\n", .{});
             try writer.print("                        if(self.handlers.{s}_handler) |pfn| try pfn(self.user_context, &s);\n", .{e.oname});
+            try writer.print("                    }},\n", .{});
+        }
+
+        try writer.print("                    else => {{std.debug.print(\"Found Packet ID {{}} in state {s}\", .{{id}});}}\n", .{struct_pair.state.name});
+        try writer.print("                }}\n", .{});
+        try writer.print("            }},\n", .{});
+    }
+
+    try writer.print("        }}\n", .{});
+
+    try writer.print("    }}\n\n", .{});
+
+    // Writer Structure
+
+    try writer.print(dispatch_write_stub, .{});
+    try writer.print("        switch(self.state) {{\n", .{});
+
+    for (self.state_struct_array.items) |struct_pair| {
+        try writer.print("            .{s} => {{\n", .{struct_pair.state.name});
+        try writer.print("                switch(id) {{\n", .{});
+
+        for (struct_pair.entries) |e| {
+            const my_dir = self.ir.direction == .In;
+            const is_in = std.mem.containsAtLeast(u8, e.oname, 1, "In");
+            const is_out = std.mem.containsAtLeast(u8, e.oname, 1, "Out");
+
+            if ((!my_dir or !is_out) and (my_dir or !is_in)) continue;
+
+            try writer.print("                    {} => {{\n", .{e.value});
+            try writer.print("                        var s : *{s} = @ptrCast(@alignCast(ctx));\n", .{e.oname});
+            try writer.print("                        try s.write(writer);\n", .{});
             try writer.print("                    }},\n", .{});
         }
 
@@ -369,8 +560,6 @@ fn write_struct_name(self: *Self, writer: anytype, e: IR.Structure) ![]const u8 
             return "Packet";
         }
     }
-
-    std.debug.print("{s}\n", .{e.name});
 
     var name: []const u8 = e.name;
     if (e.flag.event) {
@@ -419,12 +608,16 @@ fn write_handle_table(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
                     const name = try std.fmt.allocPrint(util.allocator(), "{s}{s}{s}", .{ inout, e.name, state.name });
                     const new_name = try std.fmt.allocPrint(util.allocator(), "P_{s}", .{name});
 
-                    try writer.print("   {s}_handler: ?*const fn (ctx: ?*anyopaque, event: *{s}) anyerror!void = null,\n", .{ name, name });
                     try state_array.append(.{
                         .name = new_name,
                         .oname = name,
                         .value = @bitCast(e.event),
                     });
+
+                    if (e.flag.in and !e.flag.out and self.ir.direction == .Out) continue;
+                    if (e.flag.out and !e.flag.in and self.ir.direction == .In) continue;
+
+                    try writer.print("   {s}_handler: ?*const fn (ctx: ?*anyopaque, event: *{s}) anyerror!void = null,\n", .{ name, name });
                 }
             }
         }
@@ -451,7 +644,7 @@ const proto_header =
     \\
     \\    const Self = @This();
     \\
-    \\    pub fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
+    \\    pub inline fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
     \\        return .{{ 
     \\            .handlers = handlers,
     \\            .src_reader = reader,
@@ -459,7 +652,7 @@ const proto_header =
     \\        }};
     \\    }}
     \\
-    \\    pub fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
+    \\    pub inline fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
     \\        if(self.compressed or self.encrypted) {{
     \\            @panic("Compression and encryption not supported yet");  
     \\        }}
@@ -468,14 +661,24 @@ const proto_header =
     \\        var packet: Packet = undefined;
     \\
 ;
+
+pub const len_var_get =
+    \\        packet.len = blk: {{ var value : usize = 0; var b : usize = try self.src_reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try self.src_reader.readByte();}} value |= b; break :blk @intCast(value); }};
+;
+
+pub const len_fixed_get =
+    \\        packet.len = try self.src_reader.readInt({s}, .little);
+;
+
 pub const len_prefix =
     \\        
-    \\        packet.len = blk: {{ var value : usize = 0; var b : usize = try self.src_reader.readByte(); while(b & 0x80 != 0) {{value |= (b & 0x7F) << 7; value <<= 7; b = try self.src_reader.readByte();}} value |= b; break :blk value; }};
     \\
     \\        // Read the packet all into a buffer
     \\        const packet_len : usize = @intCast(packet.len);
-    \\        const buffer = try self.src_reader.readAllAlloc(allocator, packet_len);
+    \\        const buffer = try allocator.alloc(u8, packet_len);
     \\        defer allocator.free(buffer);
+    \\
+    \\        _ = try self.src_reader.readAll(buffer);
     \\
     \\        var fbstream = std.io.fixedBufferStream(buffer);
     \\        const fbreader = fbstream.reader().any();
@@ -486,9 +689,15 @@ pub const len_prefix =
 pub const id_prefix =
     \\        try packet.read(self.src_reader, allocator, self);
 ;
-pub const dispatch_stub =
+pub const dispatch_read_stub =
     \\    }}
     \\
-    \\    pub fn dispatch(self: *Self, reader: std.io.AnyReader, allocator: std.mem.Allocator, id: usize) !void {{
+    \\    pub inline fn dispatch_read(self: *Self, reader: std.io.AnyReader, allocator: std.mem.Allocator, id: usize) !void {{
+    \\
+;
+
+pub const dispatch_write_stub =
+    \\
+    \\    pub inline fn dispatch_write(self: *Self, writer: std.io.AnyWriter, id: usize, ctx: *anyopaque) !void {{
     \\
 ;
