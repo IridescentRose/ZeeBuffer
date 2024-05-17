@@ -216,6 +216,12 @@ fn write_struct_read(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, str
             },
         }
     }
+
+    if (e.entries.len == 0) {
+        try writer.print("        _ = self;\n", .{});
+        try writer.print("        _ = reader;\n", .{});
+    }
+
     if (!allocator_used) {
         try writer.print("        _ = allocator;\n", .{});
     }
@@ -350,13 +356,19 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                         }
                         try writer.print("        try writer.writeAll(array.items);\n", .{});
                     } else {
-                        try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s}); _ = allocator;\n", .{ s, entry.name });
+                        try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s});\n", .{ s, entry.name });
                         try writer.print("        try writer.writeAll(array.items);\n", .{});
                     }
                 } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues");
             },
         }
     }
+
+    if (e.entries.len == 0) {
+        try writer.print("    _ = self;\n", .{});
+        try writer.print("    _ = writer;\n", .{});
+    }
+
     try writer.print("    }}\n", .{});
 }
 
@@ -605,7 +617,11 @@ fn write_handle_table(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
             if (e.flag.state_base or e.state == state.value) {
                 if (e.flag.event) {
                     const inout = if (e.flag.in and e.flag.out) "InOut" else if (e.flag.in) "In" else "Out";
-                    const name = try std.fmt.allocPrint(util.allocator(), "{s}{s}{s}", .{ inout, e.name, state.name });
+
+                    const name = if (e.state >= 0)
+                        try std.fmt.allocPrint(util.allocator(), "{s}{s}{s}", .{ inout, e.name, state.name })
+                    else
+                        try std.fmt.allocPrint(util.allocator(), "{s}{s}", .{ inout, e.name });
                     const new_name = try std.fmt.allocPrint(util.allocator(), "P_{s}", .{name});
 
                     try state_array.append(.{
