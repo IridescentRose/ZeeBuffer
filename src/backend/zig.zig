@@ -356,6 +356,7 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
                         }
                         try writer.print("        try writer.writeAll(array.items);\n", .{});
                     } else {
+                        try writer.print("        try array.writer().any().writeAll(std.mem.asBytes(&self.{s}));\n", .{s});
                         try writer.print("        try protocol.dispatch_write(array.writer().any(), self.{s}, self.{s});\n", .{ s, entry.name });
                         try writer.print("        try writer.writeAll(array.items);\n", .{});
                     }
@@ -496,8 +497,11 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
 
         for (struct_pair.entries) |e| {
             const my_dir = self.ir.direction == .In;
-            const is_in = std.mem.containsAtLeast(u8, e.oname, 1, "In");
-            const is_out = std.mem.containsAtLeast(u8, e.oname, 1, "Out") or std.mem.containsAtLeast(u8, e.oname, 1, "InOut");
+
+            const slice_len = if (e.oname.len < 5) e.oname.len else 5;
+
+            const is_in = std.mem.containsAtLeast(u8, e.oname[0..slice_len], 1, "In");
+            const is_out = std.mem.containsAtLeast(u8, e.oname[0..slice_len], 1, "Out") or std.mem.containsAtLeast(u8, e.oname, 1, "InOut");
 
             if ((!my_dir or !is_in) and (my_dir or !is_out)) continue;
 
@@ -529,8 +533,10 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
 
         for (struct_pair.entries) |e| {
             const my_dir = self.ir.direction == .In;
-            const is_in = std.mem.containsAtLeast(u8, e.oname, 1, "In");
-            const is_out = std.mem.containsAtLeast(u8, e.oname, 1, "Out");
+            const slice_len = if (e.oname.len < 5) e.oname.len else 5;
+
+            const is_in = std.mem.containsAtLeast(u8, e.oname[0..slice_len], 1, "In");
+            const is_out = std.mem.containsAtLeast(u8, e.oname[0..slice_len], 1, "Out");
 
             if ((!my_dir or !is_out) and (my_dir or !is_in)) continue;
 
