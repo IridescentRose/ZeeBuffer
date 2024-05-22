@@ -235,9 +235,9 @@ fn write_struct_write(self: *Self, writer: std.io.AnyWriter, e: IR.Structure, st
     var writer_name: []const u8 = "writer";
 
     if (!e.flag.packet) {
-        try writer.print("\n    pub inline fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn write(self: *const {s}, writer: std.io.AnyWriter) !void {{\n", .{struct_name});
     } else {
-        try writer.print("\n    pub inline fn write(self: *{s}, writer: std.io.AnyWriter, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
+        try writer.print("\n    pub inline fn write(self: *const {s}, writer: std.io.AnyWriter, allocator: std.mem.Allocator, protocol: *Protocol) !void {{\n", .{struct_name});
         try writer.print("        var array = std.ArrayList(u8).init(allocator); defer array.deinit();\n", .{});
         start = 1;
         writer_name = "array.writer()";
@@ -413,7 +413,7 @@ fn write_struct(ctx: *anyopaque, writer: std.io.AnyWriter, e: IR.Structure) !voi
                 break :blk base;
             },
             .User => self.ir.symbol_table.entries.items[eType.value].name,
-            .Union => "*anyopaque",
+            .Union => "*const anyopaque",
             .FixedArray => blk: {
                 const base = self.ir.source.token_text_idx(eType.extra);
                 const size = self.ir.source.token_text_idx(eType.value);
@@ -541,7 +541,7 @@ fn write_footer(ctx: *anyopaque, writer: std.io.AnyWriter) !void {
             if ((!my_dir or !is_out) and (my_dir or !is_in)) continue;
 
             try writer.print("                    {} => {{\n", .{e.value});
-            try writer.print("                        var s : *{s} = @ptrCast(@alignCast(ctx));\n", .{e.oname});
+            try writer.print("                        var s : *const {s} = @ptrCast(@alignCast(ctx));\n", .{e.oname});
             try writer.print("                        try s.write(writer);\n", .{});
             try writer.print("                    }},\n", .{});
         }
@@ -667,7 +667,7 @@ const proto_header =
     \\    const Self = @This();
     \\
     \\    pub inline fn init(handlers: ProtoHandlers, reader: std.io.AnyReader, writer: std.io.AnyWriter) Self {{
-    \\        return .{{ 
+    \\        return .{{
     \\            .handlers = handlers,
     \\            .src_reader = reader,
     \\            .src_writer = writer,
@@ -676,7 +676,7 @@ const proto_header =
     \\
     \\    pub inline fn poll(self: *Self, allocator: std.mem.Allocator) !void {{
     \\        if(self.compressed or self.encrypted) {{
-    \\            @panic("Compression and encryption not supported yet");  
+    \\            @panic("Compression and encryption not supported yet");
     \\        }}
     \\
     \\        // Read the packet len
@@ -693,7 +693,7 @@ pub const len_fixed_get =
 ;
 
 pub const len_prefix =
-    \\        
+    \\
     \\
     \\        // Read the packet all into a buffer
     \\        const packet_len : usize = @intCast(packet.len);
@@ -720,6 +720,6 @@ pub const dispatch_read_stub =
 
 pub const dispatch_write_stub =
     \\
-    \\    pub inline fn dispatch_write(self: *Self, writer: std.io.AnyWriter, id: usize, ctx: *anyopaque) !void {{
+    \\    pub inline fn dispatch_write(self: *Self, writer: std.io.AnyWriter, id: usize, ctx: *const anyopaque) !void {{
     \\
 ;
