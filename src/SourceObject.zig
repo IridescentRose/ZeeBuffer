@@ -1,27 +1,51 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
 const util = @import("util.zig");
-const Tokenizer = @import("frontend/Tokenizer.zig");
+const Tokenizer = @import("frontend/tokenizer.zig");
 
 const Self = @This();
 
-source: []const u8,
-tokens: []const Tokenizer.Token,
-
-// Source location
-pub const Location = struct {
+pub const Location = packed struct(u64) {
     line: u32,
     column: u32,
 };
 
-// Initialize the object by reading the file and tokenizing it
-pub fn init(path: []const u8) !Self {
-    const source = try Self.read_file(path);
-    var tokenizer = try Tokenizer.init(source);
+/// Source text of the file.
+source: []const u8,
 
-    return Self{
+/// Tokens of the file.
+tokens: []const Tokenizer.Token,
+
+/// Read the file at the given path and tokenize it.
+pub fn init(path: []const u8) !Self {
+    const source = try read_file(path);
+
+    var tokenizer = Tokenizer.init(source);
+
+    return .{
         .source = source,
         .tokens = try tokenizer.tokenize(),
     };
+}
+
+/// Reads the file at the given path and returns its contents.
+fn read_file(path: []const u8) ![]const u8 {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    return try file.readToEndAlloc(
+        util.allocator(),
+        std.math.maxInt(u32),
+    );
+}
+
+pub fn get_token_text(self: Self, token: Tokenizer.Token) []const u8 {
+    return self.source[token.start..(token.start + token.len)];
+}
+
+pub fn get_token_text_by_idx(self: Self, idx: u16) []const u8 {
+    return self.get_token_text(self.tokens[idx]);
 }
 
 // Pull location for error messages
@@ -42,6 +66,7 @@ pub fn get_source_location(self: *Self, token: Tokenizer.Token) Location {
 }
 
 // Pull context window for error messages
+// TODO: This sometimes bugs out
 pub fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
     const WINDOW_SIZE = 64;
     const start = if (token.start < WINDOW_SIZE) 0 else token.start - WINDOW_SIZE;
@@ -51,24 +76,4 @@ pub fn get_source_string(self: *Self, token: Tokenizer.Token) []const u8 {
     const endNewLine = (std.mem.indexOf(u8, self.source[token.start..end], "\n") orelse 0) + token.start;
 
     return self.source[startNewLine..endNewLine];
-}
-
-pub fn token_text(self: *Self, token: Tokenizer.Token) []const u8 {
-    return self.source[token.start .. token.start + token.len];
-}
-
-pub fn token_text_idx(self: *Self, idx: u16) []const u8 {
-    return self.token_text(self.tokens[idx]);
-}
-
-// Reads the file bytes into a buffer
-fn read_file(path: []const u8) ![]const u8 {
-    // Open and read the file.
-    var file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    return try file.readToEndAlloc(
-        util.allocator(),
-        std.math.maxInt(u32),
-    );
 }

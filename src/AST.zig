@@ -1,51 +1,29 @@
 const std = @import("std");
 
 pub const Index = u16;
+pub const Endian = enum { little, big };
 
-pub const AttributeType = enum(u16) {
+pub const AttributeKind = enum(u16) {
     Enum,
-    InEvent,
-    OutEvent,
-    InOutEvent,
-    Compressed,
-    Encrypted,
-    State,
+    Event,
 };
 
 pub const Attribute = struct {
-    type: AttributeType,
-    value: Index,
+    kind: AttributeKind,
+    values: []Index,
 };
 
 pub const Field = struct {
     name: Index,
-    kind: Index,
-    len_kind: u32 = 0,
-};
-
-pub const Special = enum {
-    None,
-    State,
-    Packet,
+    values: []Index,
 };
 
 pub const Entry = struct {
     name: Index,
-    special: Special = .None,
-    attributes: ?[]Attribute = null,
+    is_state: bool = false,
+    attribute: ?Attribute = null,
     fields: []Field,
 };
 
-pub const Endian = enum {
-    Little,
-    Big,
-};
-
-pub const Direction = enum {
-    In,
-    Out,
-};
-
-endian: Endian = .Little,
-direction: Direction = .In,
+endian: Endian = .little,
 entries: []Entry,

@@ -1,15 +1,13 @@
 const std = @import("std");
+
 const util = @import("util.zig");
+
 const AST = @import("AST.zig");
 const SourceObject = @import("SourceObject.zig");
+pub const Index = AST.Index;
 
-pub const SymType = enum(u8) {
-    State = 0, // State is a reserved enumeration
-    UserType = 1, // This is a user-defined type
-    BaseType = 2, // This is a base type
-};
+const Self = @This();
 
-// Base types
 pub const BaseType = enum(u32) {
     U8 = 0,
     U16 = 1,
@@ -22,129 +20,126 @@ pub const BaseType = enum(u32) {
     F32 = 8,
     F64 = 9,
     Bool = 10,
-    VarInt = 11,
 };
 
-pub const SymEntry = struct {
+pub const SymbolType = enum(u8) {
+    BaseType = 0,
+    UserType = 1,
+    State = 2,
+    Enum = 3,
+};
+
+pub const Symbol = struct {
     name: []const u8,
-    type: SymType,
-    value: u32 = 0, // TODO: Make this something more generic
+    type: SymbolType,
+    value: u32 = 0, // If it's an Enum, this value is filled with the enum value
 };
 
-pub const SymTable = struct {
-    entries: std.ArrayList(SymEntry),
-};
-
-pub const StructureFlag = packed struct(u8) {
-    compressed: bool, // Is this compressed?
-    encrypted: bool, // Is this encrypted
-    in: bool, // Direction
-    out: bool, // Direction
-    event: bool, // Is an Event
-    packet: bool, // Is a Packet
-    data: bool, // Data structure
-    state_base: bool, // State base
-};
-pub const Index = u16;
-
-pub const StructureTypes = enum(u8) {
+pub const StructureType = enum(u8) {
     Base = 0,
     User = 1,
-    Union = 2,
-    FixedArray = 3,
-    VarArray = 4,
+    FixedArray = 2,
+    VarArray = 3,
 };
 
-pub const StructureType = struct {
-    type: StructureTypes = .Base,
-    value: Index, // If user is false, this is an index into the symtable, otherwise it is an index into the struct table
-    extra: Index = 0, // If this is a fixed array, this is the size of the array, if this is a var array, this is the backing type
+pub const Direction = enum(u8) {
+    Client = 0,
+    Server = 1,
+    Both = 2,
 };
 
 pub const StructureEntry = struct {
     name: []const u8,
     type: StructureType,
+    value: Index, // Index to symbol table for type
+    extra: Index = 0, // If type is FixedArray, this is the size of the array; If type is VarArray, this is the index of the size field type
 };
 
 pub const Structure = struct {
     name: []const u8,
-    flag: StructureFlag,
     entries: []StructureEntry,
-    state: i16 = -1,
-    event: i16 = -1,
-};
-
-pub const StructureTable = struct {
-    entries: std.ArrayList(Structure),
-};
-
-pub const EnumTable = struct {
-    entries: std.ArrayList(Enum),
+    event: bool = false,
+    event_id: ?u16 = null, // ID Number
+    state_id: ?u16 = null, // Symbol Table Index for State
+    direction: ?Direction = null, // Direction of the event
 };
 
 pub const EnumEntry = struct {
     name: []const u8,
-    value: u32,
+    value: u32, // Is the value of the entry.
 };
 
 pub const Enum = struct {
     name: []const u8,
-    type: Index,
+    backing_type: Index, // An index into the symbol table
     entries: []EnumEntry,
 };
 
-const Self = @This();
-
-symbol_table: SymTable,
-struct_table: StructureTable,
-enum_table: EnumTable,
-endian: AST.Endian = .Little,
-direction: AST.Direction = .In,
+sym_tab: std.ArrayList(Symbol),
+struct_tab: std.ArrayList(Structure),
+enum_tab: std.ArrayList(Enum),
 source: SourceObject,
-
-fn create_default_table() !SymTable {
-    var array = std.ArrayList(SymEntry).init(util.allocator());
-
-    try array.appendSlice(base_symbols[0..]);
-    return SymTable{
-        .entries = array,
-    };
-}
+endian: AST.Endian = .little,
 
 pub fn init(source: SourceObject) !Self {
     return .{
-        .symbol_table = try create_default_table(),
-        .struct_table = .{
-            .entries = std.ArrayList(Structure).init(util.allocator()),
-        },
-        .enum_table = .{
-            .entries = std.ArrayList(Enum).init(util.allocator()),
-        },
+        .sym_tab = try create_default_table(),
+        .struct_tab = std.ArrayList(Structure).init(util.allocator()),
+        .enum_tab = std.ArrayList(Enum).init(util.allocator()),
         .source = source,
     };
 }
 
-pub fn resolve_symbol(self: *Self, name: []const u8) !SymEntry {
-    for (self.symbol_table.entries.items) |e| {
-        if (std.mem.eql(u8, e.name, name)) {
-            return e;
+fn create_default_table() !std.ArrayList(Symbol) {
+    var array = std.ArrayList(Symbol).init(util.allocator());
+    try array.appendSlice(
+        &[_]Symbol{
+            Symbol{ .name = "u8", .type = .BaseType, .value = @intFromEnum(BaseType.U8) },
+            Symbol{ .name = "u16", .type = .BaseType, .value = @intFromEnum(BaseType.U16) },
+            Symbol{ .name = "u32", .type = .BaseType, .value = @intFromEnum(BaseType.U32) },
+            Symbol{ .name = "u64", .type = .BaseType, .value = @intFromEnum(BaseType.U64) },
+            Symbol{ .name = "i8", .type = .BaseType, .value = @intFromEnum(BaseType.I8) },
+            Symbol{ .name = "i16", .type = .BaseType, .value = @intFromEnum(BaseType.I16) },
+            Symbol{ .name = "i32", .type = .BaseType, .value = @intFromEnum(BaseType.I32) },
+            Symbol{ .name = "i64", .type = .BaseType, .value = @intFromEnum(BaseType.I64) },
+            Symbol{ .name = "f32", .type = .BaseType, .value = @intFromEnum(BaseType.F32) },
+            Symbol{ .name = "f64", .type = .BaseType, .value = @intFromEnum(BaseType.F64) },
+            Symbol{ .name = "bool", .type = .BaseType, .value = @intFromEnum(BaseType.Bool) },
+        },
+    );
+
+    return array;
+}
+
+pub fn add_to_sym_tab(self: *Self, symbol: Symbol) !void {
+    // Ensure the symbol doesn't already exist
+    for (self.sym_tab.items) |s| {
+        if (std.mem.eql(u8, s.name, symbol.name)) {
+            return error.SymbolAlreadyExists;
         }
     }
 
-    return error.SymEntryNotFound;
+    try self.sym_tab.append(symbol);
 }
 
-const base_symbols = [_]SymEntry{
-    SymEntry{ .name = "u8", .type = SymType.BaseType, .value = @intFromEnum(BaseType.U8) },
-    SymEntry{ .name = "u16", .type = SymType.BaseType, .value = @intFromEnum(BaseType.U16) },
-    SymEntry{ .name = "u32", .type = SymType.BaseType, .value = @intFromEnum(BaseType.U32) },
-    SymEntry{ .name = "u64", .type = SymType.BaseType, .value = @intFromEnum(BaseType.U64) },
-    SymEntry{ .name = "i8", .type = SymType.BaseType, .value = @intFromEnum(BaseType.I8) },
-    SymEntry{ .name = "i16", .type = SymType.BaseType, .value = @intFromEnum(BaseType.I16) },
-    SymEntry{ .name = "i32", .type = SymType.BaseType, .value = @intFromEnum(BaseType.I32) },
-    SymEntry{ .name = "i64", .type = SymType.BaseType, .value = @intFromEnum(BaseType.I64) },
-    SymEntry{ .name = "f32", .type = SymType.BaseType, .value = @intFromEnum(BaseType.F32) },
-    SymEntry{ .name = "f64", .type = SymType.BaseType, .value = @intFromEnum(BaseType.F64) },
-    SymEntry{ .name = "bool", .type = SymType.BaseType, .value = @intFromEnum(BaseType.Bool) },
-    SymEntry{ .name = "VarInt", .type = SymType.BaseType, .value = @intFromEnum(BaseType.VarInt) },
-};
+pub fn add_to_enum_tab(self: *Self, enumeration: Enum) !void {
+    // Ensure the enum doesn't already exist
+    for (self.enum_tab.items) |e| {
+        if (std.mem.eql(u8, e.name, enumeration.name)) {
+            return error.EnumAlreadyExists;
+        }
+    }
+
+    try self.enum_tab.append(enumeration);
+}
+
+pub fn add_to_struct_tab(self: *Self, structure: Structure) !void {
+    // Ensure the struct doesn't already exist
+    for (self.struct_tab.items) |s| {
+        if (std.mem.eql(u8, s.name, structure.name)) {
+            return error.StructureAlreadyExists;
+        }
+    }
+
+    try self.struct_tab.append(structure);
+}

@@ -1,8 +1,11 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
 const util = @import("../util.zig");
 
-// All valid schema tokens
-pub const TokenKind = enum(u16) {
+const Self = @This();
+
+pub const TokenKind = enum(u8) {
     EOF = 0,
     LSquirly = 1,
     RSquirly = 2,
@@ -11,50 +14,26 @@ pub const TokenKind = enum(u16) {
     Colon = 5,
     Comma = 6,
     Ident = 7,
-    KWIn = 8,
-    KWInOut = 9,
-    KWOut = 10,
-    KWEnum = 11,
-    KWEvent = 12,
-    KWCompressed = 13,
-    KWEncrypted = 14,
-    KWPacket = 15,
-    KWEndian = 16,
-    KWDirection = 17,
-    KWState = 18,
-    KWStateEvent = 19,
-    KWVarArray = 20,
-    KWFixedArray = 21,
+    KWEnum = 8,
+    KWEvent = 9,
+    KWEndian = 10,
+    KWState = 11,
+    KWClient = 12,
+    KWServer = 13,
+    KWBoth = 14,
+    KWVarArray = 15,
+    KWFixedArray = 16,
 };
 
-// Pairs for symbols
+pub const Token = packed struct(u32) {
+    kind: TokenKind,
+    len: u8 = 1,
+    start: u16,
+};
+
 const PairSymStr = struct {
     kind: TokenKind,
     char: u8,
-};
-
-// Pairs for map
-const PairKWStr = struct {
-    kind: TokenKind,
-    str: []const u8,
-};
-
-// All valid schema keywords
-const KWStrs = [_]PairKWStr{
-    .{ .kind = .KWIn, .str = "In" },
-    .{ .kind = .KWInOut, .str = "InOut" },
-    .{ .kind = .KWOut, .str = "Out" },
-    .{ .kind = .KWEnum, .str = "Enum" },
-    .{ .kind = .KWEvent, .str = "Event" },
-    .{ .kind = .KWCompressed, .str = "Compressed" },
-    .{ .kind = .KWEncrypted, .str = "Encrypted" },
-    .{ .kind = .KWStateEvent, .str = "State" },
-    .{ .kind = .KWPacket, .str = "@packet" },
-    .{ .kind = .KWEndian, .str = "@endian" },
-    .{ .kind = .KWDirection, .str = "@direction" },
-    .{ .kind = .KWState, .str = "@state" },
-    .{ .kind = .KWVarArray, .str = "VarArray" },
-    .{ .kind = .KWFixedArray, .str = "Array" },
 };
 
 // All valid schema symbols
@@ -66,50 +45,41 @@ const SymStrs = [_]PairSymStr{
     .{ .kind = .RSquirly, .char = '}' },
 };
 
-// A token in the schema
-pub const Token = struct {
+const PairKWStr = struct {
     kind: TokenKind,
-    start: u16,
-    len: u16 = 1,
+    str: []const u8,
 };
 
-const Self = @This();
+const KWStrs = [_]PairKWStr{
+    .{ .kind = .KWEnum, .str = "Enum" },
+    .{ .kind = .KWEvent, .str = "Event" },
+    .{ .kind = .KWEndian, .str = "@endian" },
+    .{ .kind = .KWState, .str = "@state" },
+    .{ .kind = .KWClient, .str = "Client" },
+    .{ .kind = .KWServer, .str = "Server" },
+    .{ .kind = .KWBoth, .str = "Both" },
+    .{ .kind = .KWVarArray, .str = "VarArray" },
+    .{ .kind = .KWFixedArray, .str = "Array" },
+};
 
-curr_index: u16 = 0,
-ident_len: u16 = 0,
+curr_idx: u16 = 0,
+ident_len: u8 = 0,
 in_ident: bool = false,
 source: []const u8,
 
-// Create a new tokenizer
-pub fn init(source: []const u8) !Self {
-    if (source.len >= std.math.maxInt(u16))
-        return error.SourceTooBig;
+pub fn init(source: []const u8) Self {
+    assert(source.len < std.math.maxInt(u16));
 
-    return Self{
+    return .{
         .source = source,
     };
-}
-
-// Check if we are in an identifier and if so, add it to the token array
-fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
-    if (self.in_ident and self.ident_len > 0) {
-        try tokenArray.append(.{
-            .kind = TokenKind.Ident,
-            .start = self.curr_index - self.ident_len,
-            .len = self.ident_len,
-        });
-
-        self.in_ident = false;
-        self.ident_len = 0;
-    }
 }
 
 pub fn tokenize(self: *Self) ![]Token {
     var tokenArray = std.ArrayList(Token).init(util.allocator());
 
-    while (self.curr_index < self.source.len) : (self.curr_index += 1) {
-        switch (self.source[self.curr_index]) {
-
+    while (self.curr_idx < self.source.len) : (self.curr_idx += 1) {
+        switch (self.source[self.curr_idx]) {
             // New lines, spaces, tabs, and carriage returns
             ' ', '\n', '\t', '\r' => {
                 try self.default_ident(&tokenArray);
@@ -118,8 +88,8 @@ pub fn tokenize(self: *Self) ![]Token {
             // Comments
             '#' => {
                 try self.default_ident(&tokenArray);
-                while (self.curr_index < self.source.len) : (self.curr_index += 1) {
-                    if (self.source[self.curr_index] == '\n') {
+                while (self.curr_idx < self.source.len) : (self.curr_idx += 1) {
+                    if (self.source[self.curr_idx] == '\n') {
                         break;
                     }
                 }
@@ -138,8 +108,8 @@ pub fn tokenize(self: *Self) ![]Token {
                         if (c == pair.char) {
                             break pair.kind;
                         }
-                    } else @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
-                    .start = self.curr_index,
+                    } else unreachable,
+                    .start = self.curr_idx,
                 });
             },
 
@@ -155,7 +125,8 @@ pub fn tokenize(self: *Self) ![]Token {
     try self.default_ident(&tokenArray);
     try tokenArray.append(Token{
         .kind = TokenKind.EOF,
-        .start = self.curr_index,
+        .start = self.curr_idx,
+        .len = 0,
     });
 
     // Filter identifiers to keywords
@@ -169,6 +140,20 @@ pub fn tokenize(self: *Self) ![]Token {
             }
         }
     }
-    // Return the token array
+
     return try tokenArray.toOwnedSlice();
+}
+
+// Check if we are in an identifier and if so, add it to the token array
+fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
+    if (self.in_ident and self.ident_len > 0) {
+        try tokenArray.append(.{
+            .kind = TokenKind.Ident,
+            .start = self.curr_idx - self.ident_len,
+            .len = self.ident_len,
+        });
+
+        self.in_ident = false;
+        self.ident_len = 0;
+    }
 }

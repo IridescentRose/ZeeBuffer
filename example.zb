@@ -1,0 +1,59 @@
+# Set the byte order to big endian. This can be overriden per field, but this is the default.
+# This can only be set once per file.
+@endian big
+
+# Enum with a u8 backing type
+WeatherType : Enum(u8) {
+    Sunny: 1,
+    Cloudy: 2,
+    Rainy: 3,
+}
+
+# Define the valid connection states. This can be used to restrict the packets that can be sent or received
+# based on the current state of the connection.
+# This can only be set once per file.
+@state {
+    Handshake: 0,
+    Login: 1,
+    Status: 2,
+    Play: 3,
+}
+
+# Regular Data
+Vec3 {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+# Enums can be used in attributes
+HandshakeEventIDs : Enum(u8) {
+    HandshakeID: 0,
+    TransitionID: 1,
+}
+
+# Define an event that can be sent from the client to the server
+# The Event attribute specifies the event ID number, the state it can be sent in, and the direction.
+# The event ID number must be unique within the target state.
+# The state must be a valid state defined in the @state block.
+HandshakeClient: Event(HandshakeID, Handshake, Client) {
+    protocolVersion: u32,
+    username: Array(u8, 16),
+    key: Array(u8, 32),
+}
+
+# Define a event that can be sent from the server to the client
+# To send to both the client and the server, use the Both direction.
+# It is valid to have multiple events with the same ID number, as long as they are in different states and/or directions.
+HandshakeServer: Event(HandshakeID, Handshake, Server) {
+    protocolVersion: u32,
+    serverAddress: Array(u8, 16),
+    serverPort: u16,
+}
+
+# Define a transition event that can be sent from the client to the server and vice versa.
+# This event can be sent in the Handshake state, and the desired state is the state that the client or server
+# wants to transition to.
+TransitionBoth: Event(TransitionID, Handshake, Both) {
+    desiredState: u8,
+}

@@ -1,8 +1,0 @@
-@endian little
-@direction in 
-
-@packet {
-    len: VarInt,
-    id: u8,
-    data: Event(id),
-}

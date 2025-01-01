@@ -1,6 +1,0 @@
-@endian little
-@direction in 
-
-@state {
-    Connected : 0,
-}

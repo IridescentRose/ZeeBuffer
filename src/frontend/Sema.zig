@@ -1,110 +1,40 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
 const util = @import("../util.zig");
-const Tokenizer = @import("Tokenizer.zig");
-const Parser = @import("Parser.zig");
+
 const AST = @import("../AST.zig");
 const IR = @import("../IR.zig");
 const SourceObject = @import("../SourceObject.zig");
+const Tokenizer = @import("tokenizer.zig");
 
 const Self = @This();
 
+ast: AST,
 source: SourceObject,
 
-pub fn init(source: SourceObject) Self {
-    return Self{
+pub fn init(ast: AST, source: SourceObject) Self {
+    return .{
+        .ast = ast,
         .source = source,
     };
 }
 
-const AttributeDetails = struct {
-    flag: IR.StructureFlag,
-    state: i16,
-    event: i16,
-};
+fn print_error(self: *Self, token: Tokenizer.Token, message: []const u8) void {
+    std.debug.print("{s}\n", .{message});
 
-fn generate_attrib_details(self: *Self, e: AST.Entry, ir: *IR) !?AttributeDetails {
-    // Initialize values
-    var flag = IR.StructureFlag{
-        .data = true,
-        .state_base = true,
-        .encrypted = false,
-        .compressed = false,
-        .in = false,
-        .out = false,
-        .event = false,
-        .packet = false,
-    };
+    const location = self.source.get_source_location(token);
+    const source = self.source.get_source_string(token);
 
-    var state: i16 = -1;
-    var event: i16 = -1;
-
-    if (e.attributes) |attribs| {
-        for (attribs) |a| {
-            switch (a.type) {
-                .Compressed => flag.compressed = true, // TODO: Parse type
-                .Encrypted => flag.encrypted = true, // TODO: Parse type
-                .InEvent => {
-                    flag.in = true;
-                    flag.event = true;
-                    event = try std.fmt.parseInt(i16, self.source.token_text_idx(a.value), 0);
-                },
-                .OutEvent => {
-                    flag.out = true;
-                    flag.event = true;
-                    event = try std.fmt.parseInt(i16, self.source.token_text_idx(a.value), 0);
-                },
-                .InOutEvent => {
-                    flag.in = true;
-                    flag.out = true;
-                    flag.event = true;
-                    event = try std.fmt.parseInt(i16, self.source.token_text_idx(a.value), 0);
-                },
-                .State => {
-                    flag.state_base = false;
-                    const value = self.source.token_text_idx(a.value);
-                    state = std.fmt.parseInt(i16, value, 0) catch blk: {
-                        // So we probably have a user-defined state, let's look it up
-                        const sym = ir.resolve_symbol(value) catch {
-                            std.debug.print("Cannot find state enumeration: {s}\n", .{value});
-
-                            const token = self.source.tokens[a.value];
-                            const source = self.source.get_source_string(token);
-                            const location = self.source.get_source_location(token);
-
-                            std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                            std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                            std.debug.print("{s}\n", .{source});
-
-                            return error.SemanticStateNotFound;
-                        };
-
-                        break :blk @intCast(sym.value);
-                    };
-                },
-                .Enum => {
-                    return null;
-                },
-            }
-        }
-    }
-
-    flag.packet = e.special == .Packet;
-    flag.data = !flag.event;
-
-    return .{
-        .flag = flag,
-        .state = state,
-        .event = event,
-    };
+    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+    std.debug.print("{s}\n", .{source});
 }
 
-fn add_state_symbols(self: *Self, ast: AST, ir: *IR) !void {
-    // Find the state entry
+fn add_state_symbols(self: *Self, ir: *IR) !void {
     var idx: ?usize = null;
 
-    for (ast.entries, 0..) |e, i| {
-        if (e.special == .State) {
-            // Check if the state is defined more than once
+    for (self.ast.entries, 0..) |e, i| {
+        if (e.is_state) {
             if (idx != null) {
                 std.debug.print("State is defined more than once!\nOnly one @state entry is permitted!\n", .{});
                 return error.SemanticStateRedefinition;
@@ -114,305 +44,269 @@ fn add_state_symbols(self: *Self, ast: AST, ir: *IR) !void {
         }
     }
 
-    // Check if state wasn't defined
     if (idx == null) {
         std.debug.print("State is not defined!\n Use @state to define the protocol state enum.\n", .{});
         return error.SemanticStateNotDefined;
     }
 
-    const e = ast.entries[idx.?];
-
-    // Add the state symbols
+    const e = self.ast.entries[idx.?];
     for (e.fields) |f| {
-        try ir.symbol_table.entries.append(.{
-            .name = self.source.token_text_idx(f.name),
+        try ir.add_to_sym_tab(.{
+            .name = self.source.get_token_text_by_idx(f.name),
             .type = .State,
             .value = try std.fmt.parseInt(
                 u32,
-                self.source.token_text_idx(f.kind),
+                self.source.get_token_text_by_idx(f.values[0]),
                 0,
             ),
         });
     }
 }
 
-fn add_enum_entries(self: *Self, ast: AST, ir: *IR) !void {
-    // Go through entries
-    for (ast.entries) |e| {
-        if (e.attributes == null) continue;
+fn add_enums(self: *Self, ir: *IR) !void {
+    for (self.ast.entries) |e| {
+        if (e.attribute) |attr| {
+            if (attr.kind != .Enum)
+                continue;
 
-        // Go through attributes
-        for (e.attributes.?) |a| {
-            if (a.type != .Enum) continue;
-
-            // Enum entries
-            var entries = std.ArrayList(IR.EnumEntry).init(util.allocator());
-
-            // Enum backing type check
-            const valStr = self.source.token_text_idx(a.value);
-            const eType = for (ir.symbol_table.entries.items, 0..) |sym, i| {
-                if (sym.type == .BaseType and std.mem.eql(u8, valStr, sym.name)) {
-                    break i;
-                }
-            } else {
-                std.debug.print("Cannot find enum backing type: {s}!\n", .{valStr});
-
-                const token = self.source.tokens[e.name];
-                const source = self.source.get_source_string(token);
-                const location = self.source.get_source_location(token);
-
-                std.debug.print("In Enum {s}\n", .{ir.source.token_text(token)});
-                std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                std.debug.print("{s}\n", .{source});
-
-                return error.SemanticEnumBackingTypeNotFound;
-            };
-
-            // Add each enum field
-            for (e.fields) |f| {
-                try entries.append(.{
-                    .name = self.source.token_text_idx(f.name),
-                    .value = try std.fmt.parseInt(
-                        u32,
-                        self.source.token_text_idx(f.kind),
-                        0,
-                    ),
-                });
+            if (attr.values.len != 1) {
+                self.print_error(self.source.tokens[e.name], "Enum attribute must have exactly one value!");
+                return error.SemanticEnumAttributeLength;
             }
 
-            // Add enum to the IR
-            try ir.enum_table.entries.append(.{
-                .name = self.source.token_text_idx(e.name),
-                .type = @intCast(eType),
-                .entries = try entries.toOwnedSlice(),
-            });
-        }
-    }
-}
+            var entries = std.ArrayList(IR.EnumEntry).init(util.allocator());
 
-fn add_struct_data_symbols(self: *Self, ast: AST, ir: *IR) !void {
-    for (ast.entries) |e| {
-        // Check if enum, if not, skip
-        // zig fmt: off
-        if (e.attributes != null
-            and for (e.attributes.?) |a| {
-                    if (a.type == .Enum) break false;
-                } else true
-            ) continue;
-        // zig fmt: on
+            for (e.fields) |f| {
+                const value = try std.fmt.parseInt(
+                    u32,
+                    self.source.get_token_text_by_idx(f.values[0]),
+                    0,
+                );
 
-        try ir.symbol_table.entries.append(.{
-            .name = self.source.token_text_idx(e.name),
-            .type = .UserType,
-        });
-    }
-}
+                try entries.append(.{
+                    .name = self.source.get_token_text_by_idx(f.name),
+                    .value = value,
+                });
 
-fn add_struct_entries(self: *Self, ast: AST, ir: *IR) !void {
-    for (ast.entries) |e| {
-        if (e.special == .State) continue;
-
-        // Grab attribute details
-        var attrib_details: AttributeDetails = undefined;
-        if (try self.generate_attrib_details(e, ir)) |details| {
-            attrib_details = details;
-        } else {
-            continue;
-        }
-
-        // Create entries
-        var entries = std.ArrayList(IR.StructureEntry).init(util.allocator());
-
-        for (e.fields) |f| {
-            var kind: IR.StructureTypes = .Base;
-            var entry: IR.SymEntry = undefined;
-            var index: usize = 0;
-            var extra: usize = 0;
-
-            if (f.len_kind == 3) {
-                const name = self.source.token_text_idx(f.kind);
-                if (std.mem.eql(u8, name, "Event")) {
-                    kind = .Union;
-                    index = f.kind + 2;
-                } else {
-                    const token = self.source.tokens[f.kind];
-                    const source = self.source.get_source_string(token);
-                    const location = self.source.get_source_location(token);
-
-                    std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                    std.debug.print("{s}\n", .{source});
-
-                    return error.SemanticMacroNotFound;
-                }
-            } else if (f.len_kind == 4) {
-                const name = self.source.token_text_idx(f.kind);
-                if (std.mem.eql(u8, name, "Array")) {
-                    kind = .FixedArray;
-                    index = f.kind + 2;
-                    extra = f.kind + 3;
-
-                    const subtype_name = self.source.token_text_idx(@intCast(extra));
-                    for (ir.symbol_table.entries.items) |i| {
-                        if (std.mem.eql(u8, i.name, subtype_name)) {
-                            // Success!
-                            break;
-                        }
-                    } else {
-                        const token = self.source.tokens[f.kind];
-                        const source = self.source.get_source_string(token);
-                        const location = self.source.get_source_location(token);
-
-                        std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                        std.debug.print("{s}\n", .{source});
-
-                        return error.SemanticInvalidArraySubtype;
-                    }
-                } else if (std.mem.eql(u8, name, "VarArray")) {
-                    kind = .VarArray;
-                    index = f.kind + 2;
-                    extra = f.kind + 3;
-
-                    const varint_name = self.source.token_text_idx(@intCast(index));
-                    for (ir.symbol_table.entries.items) |i| {
-                        if (std.mem.eql(u8, i.name, varint_name)) {
-                            if (std.mem.eql(u8, i.name, "f32") or std.mem.eql(u8, i.name, "f64") or i.type != .BaseType) {
-                                continue;
-                            }
-
-                            // Success!
-                            break;
-                        }
-                    } else {
-                        const token = self.source.tokens[f.kind];
-                        const source = self.source.get_source_string(token);
-                        const location = self.source.get_source_location(token);
-
-                        std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                        std.debug.print("{s}\n", .{source});
-
-                        return error.SemanticInvalidArraySubtype;
-                    }
-
-                    const subtype_name = self.source.token_text_idx(@intCast(extra));
-                    for (ir.symbol_table.entries.items) |i| {
-                        if (std.mem.eql(u8, i.name, subtype_name)) {
-                            // Success!
-                            break;
-                        }
-                    } else {
-                        const token = self.source.tokens[f.kind];
-                        const source = self.source.get_source_string(token);
-                        const location = self.source.get_source_location(token);
-
-                        std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                        std.debug.print("{s}\n", .{source});
-
-                        return error.SemanticInvalidArraySubtype;
-                    }
-                } else {
-                    const token = self.source.tokens[f.kind];
-                    const source = self.source.get_source_string(token);
-                    const location = self.source.get_source_location(token);
-
-                    std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                    std.debug.print("{s}\n", .{source});
-
-                    return error.SemanticMacroNotFound;
-                }
-            } else {
-                if (ir.resolve_symbol(self.source.token_text_idx(f.kind))) |k| {
-                    entry = k;
-                    switch (k.type) {
-                        .BaseType => {
-                            kind = .Base;
-                        },
-                        .UserType => {
-                            kind = .User;
-                        },
-                        else => @panic("You've reached unreachable code! This is a compiler bug. Report here: https://github.com/IridescentRose/ZeeBuffer/issues"),
-                    }
-                } else |_| {
-                    std.debug.print("Cannot find type: {s}!\n", .{self.source.token_text_idx(f.kind)});
-
-                    const token = self.source.tokens[f.kind];
-                    const source = self.source.get_source_string(token);
-                    const location = self.source.get_source_location(token);
-
-                    std.debug.print("In Struct {s}\n", .{self.source.token_text_idx(e.name)});
-                    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                    std.debug.print("{s}\n", .{source});
-
-                    return error.SemanticTypeNotFound;
-                }
-
-                index = for (ir.symbol_table.entries.items, 0..) |ent, i| {
-                    if (std.meta.eql(ent, entry)) {
-                        break i;
-                    }
-                } else {
-                    @panic("Compiler error: Symbol not found in symbol table!\nPlease report this bug here: https://github.com/IridescentRose/ZeeBuffer/issues\n");
+                ir.add_to_sym_tab(.{
+                    .name = self.source.get_token_text_by_idx(f.name),
+                    .type = .Enum,
+                    .value = value,
+                }) catch {
+                    self.print_error(self.source.tokens[f.name], "Enum entry already exists!");
+                    return error.SemanticEnumEntryAlreadyExists;
                 };
             }
 
-            try entries.append(IR.StructureEntry{
-                .name = self.source.token_text_idx(f.name),
-                .type = .{
-                    .type = kind,
-                    .value = @intCast(index),
-                    .extra = @intCast(extra),
-                },
-            });
-        }
+            const backing_type_str = self.source.get_token_text_by_idx(attr.values[0]);
+            const backing_type_idx = for (ir.sym_tab.items, 0..) |s, i| {
+                if (std.mem.eql(u8, s.name, backing_type_str)) {
+                    break i;
+                }
+            } else {
+                self.print_error(self.source.tokens[attr.values[0]], "Backing type not found!");
+                return error.SemanticEnumBackingTypeNotFound;
+            };
 
-        // Add struct to IR
-        try ir.struct_table.entries.append(.{
-            .name = self.source.token_text_idx(e.name),
-            .flag = attrib_details.flag,
-            .entries = try entries.toOwnedSlice(),
-            .state = attrib_details.state,
-            .event = attrib_details.event,
-        });
+            ir.add_to_enum_tab(.{
+                .name = self.source.get_token_text_by_idx(e.name),
+                .backing_type = @intCast(backing_type_idx),
+                .entries = try entries.toOwnedSlice(),
+            }) catch {
+                self.print_error(self.source.tokens[e.name], "Enum already exists!");
+                return error.SemanticEnumAlreadyExists;
+            };
+        }
     }
 }
 
-pub fn analyze(self: *Self, ast: AST) !IR {
-    var ir = try IR.init(self.source);
+fn add_struct_symbols(self: *Self, ir: *IR) !void {
+    for (self.ast.entries) |e| {
+        if (e.attribute != null and e.attribute.?.kind == .Enum)
+            continue;
 
-    ir.endian = ast.endian;
-    ir.direction = ast.direction;
+        if (e.is_state)
+            continue;
 
-    // Build enum / state symbol table to resolve
-    try self.add_state_symbols(ast, &ir);
-    try self.add_struct_data_symbols(ast, &ir);
-
-    // Validate Packets
-    for (ir.struct_table.entries.items) |e| {
-        if (e.flag.packet and !e.flag.encrypted and !e.flag.compressed) {
-            const name = e.entries[0].name;
-            if (!std.mem.eql(u8, "len", name) and !std.mem.eql(u8, "id", name)) {
-                std.debug.print("Cannot find len or id in packet!\n", .{});
-
-                const token = self.source.tokens[e.entries[0].type.value];
-                const source = self.source.get_source_string(token);
-                const location = self.source.get_source_location(token);
-
-                std.debug.print("In Struct {s}\n", .{e.name});
-                std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                std.debug.print("{s}\n", .{source});
-
-                return error.SemanticTypeNotFound;
-            }
-        }
+        ir.add_to_sym_tab(.{
+            .name = self.source.get_token_text_by_idx(e.name),
+            .type = .UserType,
+            .value = 0,
+        }) catch {
+            self.print_error(self.source.tokens[e.name], "Struct already exists!");
+            return error.SemanticStructAlreadyExists;
+        };
     }
+}
 
-    // Run through the protocol and add each struct to the struct table
-    try self.add_enum_entries(ast, &ir);
-    try self.add_struct_entries(ast, &ir);
+fn add_structs(self: *Self, ir: *IR) !void {
+    for (self.ast.entries) |e| {
+        if (e.attribute != null and e.attribute.?.kind == .Enum)
+            continue;
+
+        if (e.is_state)
+            continue;
+
+        const event = e.attribute != null and e.attribute.?.kind == .Event;
+
+        var event_id: ?u16 = null;
+        var state_id: ?u16 = null;
+        var direction: ?IR.Direction = null;
+
+        if (event) {
+            // We need to read the attribute values, which must exist at this point
+            const attrib = e.attribute.?;
+
+            if (attrib.values.len != 3) {
+                std.debug.print("Event attribute must have exactly three values!\n", .{});
+                return error.SemanticEventAttributeLength;
+            }
+
+            // Get the event ID
+            // This could be an Enum or a number
+            const event_str = self.source.get_token_text_by_idx(attrib.values[0]);
+            if (std.ascii.isDigit(event_str[0])) {
+                event_id = try std.fmt.parseInt(
+                    u16,
+                    event_str,
+                    0,
+                );
+            } else {
+                event_id = for (ir.sym_tab.items) |s| {
+                    if (std.mem.eql(u8, s.name, event_str)) {
+                        break @intCast(s.value);
+                    }
+                } else {
+                    const event_tok = self.source.tokens[attrib.values[0]];
+                    std.debug.print("Event not found: {s}!\n", .{event_str});
+                    self.print_error(event_tok, "Event does not exist!");
+                    return error.SemanticEventNotFound;
+                };
+            }
+
+            // Get the state symtab ID
+            const state_str = self.source.get_token_text_by_idx(attrib.values[1]);
+            state_id = for (ir.sym_tab.items, 0..) |s, i| {
+                if (std.mem.eql(u8, s.name, state_str)) {
+                    break @intCast(i);
+                }
+            } else {
+                const state_tok = self.source.tokens[attrib.values[1]];
+                std.debug.print("State not found: {s}!\n", .{state_str});
+                self.print_error(state_tok, "State does not exist!");
+                return error.SemanticStateNotFound;
+            };
+
+            // Get the direction
+            const dir_str = self.source.get_token_text_by_idx(attrib.values[2]);
+            direction = if (std.mem.eql(u8, dir_str, "Client"))
+                .Client
+            else if (std.mem.eql(u8, dir_str, "Server"))
+                .Server
+            else if (std.mem.eql(u8, dir_str, "Both"))
+                .Both
+            else {
+                std.debug.print("Invalid direction!\n", .{});
+                return error.SemanticInvalidDirection;
+            };
+        }
+
+        var entries = std.ArrayList(IR.StructureEntry).init(util.allocator());
+
+        for (e.fields) |f| {
+            var f_type: IR.StructureType = .Base;
+
+            const f_type_str = self.source.get_token_text_by_idx(f.values[0]);
+
+            var type_index: IR.Index = 0xFFFF;
+            var extra_index: IR.Index = 0xFFFF;
+
+            // Easy checks
+            if (std.mem.eql(u8, "Array", f_type_str)) {
+                f_type = .FixedArray;
+            } else if (std.mem.eql(u8, "VarArray", f_type_str)) {
+                f_type = .VarArray;
+            }
+
+            if (f_type != .FixedArray and f_type != .VarArray) {
+                // Check if it's a user type
+                for (ir.sym_tab.items, 0..) |s, i| {
+                    if (std.mem.eql(u8, s.name, f_type_str)) {
+                        if (s.type == .UserType) {
+                            f_type = .User;
+                        }
+
+                        type_index = @intCast(i);
+                        break;
+                    }
+                }
+            } else {
+                // Check type index for FixedArray and VarArray
+                const type_str = self.source.get_token_text_by_idx(f.values[1]);
+
+                type_index = for (ir.sym_tab.items, 0..) |s, i| {
+                    if (std.mem.eql(u8, s.name, type_str)) {
+                        break @intCast(i);
+                    }
+                } else {
+                    self.print_error(self.source.tokens[f.values[1]], "Array Type not found!");
+                    return error.SemanticTypeNotFound;
+                };
+
+                const extra_str = self.source.get_token_text_by_idx(f.values[2]);
+                if (f_type == .FixedArray) {
+                    extra_index = try std.fmt.parseInt(
+                        u16,
+                        extra_str,
+                        0,
+                    );
+                } else {
+                    extra_index = for (ir.sym_tab.items, 0..) |s, i| {
+                        if (std.mem.eql(u8, s.name, extra_str)) {
+                            break @intCast(i);
+                        }
+                    } else {
+                        self.print_error(self.source.tokens[f.values[2]], "VarArray Size Type not found!");
+                        return error.SemanticVarArraySizeTypeNotFound;
+                    };
+                }
+            }
+
+            try entries.append(.{
+                .name = self.source.get_token_text_by_idx(f.name),
+                .type = f_type,
+                .value = type_index,
+                .extra = extra_index,
+            });
+        }
+
+        ir.add_to_struct_tab(.{
+            .name = self.source.get_token_text_by_idx(e.name),
+            .entries = try entries.toOwnedSlice(),
+            .event = event,
+            .event_id = event_id,
+            .state_id = state_id,
+            .direction = direction,
+        }) catch {
+            self.print_error(self.source.tokens[e.name], "Struct already exists!");
+            return error.SemanticStructAlreadyExists;
+        };
+    }
+}
+
+pub fn analyze(self: *Self) !IR {
+    var ir = try IR.init(self.source);
+    ir.endian = self.ast.endian;
+
+    // Build the symbol table
+    try self.add_state_symbols(&ir);
+    try self.add_struct_symbols(&ir);
+
+    // Add enums to the symbol table
+    try self.add_enums(&ir);
+
+    // Build the struct table
+    try self.add_structs(&ir);
 
     return ir;
 }

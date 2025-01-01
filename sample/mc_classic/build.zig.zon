@@ -1,0 +1,15 @@
+.{
+    .name = "mc_classic",
+    .version = "0.0.0",
+
+    .dependencies = .{
+        .zbc = .{
+            .path = "../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
