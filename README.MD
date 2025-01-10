@@ -7,8 +7,7 @@ It produces bindings in Zig currently, although [a C code generator is planned](
 # Why use ZeeBuffers
 
 Use ZeeBuffers if:
-* Integrating with existing applications or the existing protocol cannot be modified
-* A protocol requires parsing/unpacking and repacking in specific ways
+* Integrating with existing applications or the existing protocol cannot be modified (useful for RE)
 * Endianness may differ between sides of the connection, or is necessary to swap
 * Connections don't necessarily need to be socket based; e.g. SPI, UART, etc.
 
@@ -20,40 +19,51 @@ ZeeBuffers is:
 
 # Usage
 
-The [protocol](./PROTOCOL.MD) is defined in the `.zb` protocol file. This protocol is a single file that defines the messages that can be sent between the client and server. The protocol file is then compiled to the target language using the `zbc` compiler. The compiler generates code that can be used to send and receive messages in the target language.
+The [protocol](./design/Language.MD) is defined in the `.zb` protocol file. This protocol is a single file that defines the messages that can be sent between the client and server. The protocol file is then compiled to the target language using the `zbc` compiler. The compiler generates code that can be used to send and receive messages in the target language.
 
 # Example Schema
 
 ```zb
 @endian big
-@direction in
+
+WeatherType : Enum(u8) {
+    Sunny: 1,
+    Cloudy: 2,
+    Rainy: 3,
+}
 
 @state {
     Handshake: 0,
-    Connected: 1,
+    Login: 1,
+    Status: 2,
+    Play: 3,
 }
 
-@packet {
-    len: VarInt,
-    id: u8,
-    event: Event(id),
+Vec3 {
+    x: f64,
+    y: f64,
+    z: f64,
 }
 
-ClientVersion {
-    major: u16,
-    minor: u16,
+HandshakeEventIDs : Enum(u8) {
+    HandshakeID: 0,
+    TransitionID: 1,
 }
 
-Mode : Enum(u8) {
-    Viewer: 0,
-    Admin: 1,
+HandshakeClient: Event(HandshakeID, Handshake, Client) {
+    protocolVersion: u32,
+    username: Array(u8, 16),
+    key: Array(u8, 32),
 }
 
-HandshakeEvent : In(0) State(Handshake) {
-    version: ClientVersion,
-    mode: Mode,
-    username: Array(16, u8)
-    password: VarArray(VarInt, u8)
+HandshakeServer: Event(HandshakeID, Handshake, Server) {
+    protocolVersion: u32,
+    serverAddress: Array(u8, 16),
+    serverPort: u16,
+}
+
+TransitionBoth: Event(TransitionID, Handshake, Both) {
+    desiredState: u8,
 }
 ```
 
@@ -63,8 +73,8 @@ HandshakeEvent : In(0) State(Handshake) {
 const std = @import("std");
 const zb = @import("zeebuffer.zig"); // Include generated file
 
-fn handshake(ctx: ?*anyopaque, event: *zb.InHandshakeEventHandshake) anyerror!void {
-
+fn handshake(ctx: ?*anyopaque, event: *zb.HandshakeClient) anyerror!void {
+     // Process handshake packet from client
 }
 
 pub fn main() !void {
@@ -74,13 +84,13 @@ pub fn main() !void {
 
     var pid: u32 = 1337; // Some data that needs to be shared
 
-    var proto = zb.Protocol.init(.{
-        .HandshakeEvent_handler = &handshake,
-    }, reader, writer);
-    proto.user_context = &pid;
+    // Role = Receive From X (In this case client)
+    var proto = zb.Protocol.init(.Client, .Connected, &pid);
 
     while(true) {
-        try proto.poll(allocator);
+        var id = // Receive from source / determine what message this is
+        var buffer = // Packet buffer as described by protocol
+        try proto.handle_packet(buffer, id);
     }
 }
 
@@ -88,4 +98,4 @@ pub fn main() !void {
 
 # ¿Parker Jones?
 
-Thank you for helping design the protocol!
+Thank you for helping design the initial version of the protocol DSL!
