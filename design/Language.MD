@@ -26,6 +26,12 @@ but it also allows for a simpler and more efficient design for the core library.
 # This can only be set once per file.
 @endian big
 
+# Enum with a u8 backing type
+WeatherType : Enum(u8) {
+    Sunny: 1,
+    Cloudy: 2,
+    Rainy: 3,
+}
 
 # Define the valid connection states. This can be used to restrict the packets that can be sent or received
 # based on the current state of the connection.
@@ -38,30 +44,23 @@ but it also allows for a simpler and more efficient design for the core library.
 }
 
 # Regular Data
-vec3 {
+Vec3 {
     x: f64,
     y: f64,
     z: f64,
 }
 
-# Enum with a u8 backing type
-weatherType : Enum(u8) {
-    Sunny: 1,
-    Cloudy: 2,
-    Rainy: 3,
-}
-
-# Enums can be used in struct attributes
-handshakeEventType : Enum(u8) {
-    Hello: 0,
-    Transition: 1,
+# Enums can be used in attributes
+HandshakeEventIDs : Enum(u8) {
+    HandshakeID: 0,
+    TransitionID: 1,
 }
 
 # Define an event that can be sent from the client to the server
 # The Event attribute specifies the event ID number, the state it can be sent in, and the direction.
 # The event ID number must be unique within the target state.
 # The state must be a valid state defined in the @state block.
-handshake: Event(Hello, Handshake, Client) {
+HandshakeClient: Event(HandshakeID, Handshake, Client) {
     protocolVersion: u32,
     username: Array(u8, 16),
     key: Array(u8, 32),
@@ -70,8 +69,7 @@ handshake: Event(Hello, Handshake, Client) {
 # Define a event that can be sent from the server to the client
 # To send to both the client and the server, use the Both direction.
 # It is valid to have multiple events with the same ID number, as long as they are in different states and/or directions.
-# This is also valid for the event name itself.
-handshake: Event(Hello, Handshake, Server) {
+HandshakeServer: Event(HandshakeID, Handshake, Server) {
     protocolVersion: u32,
     serverAddress: Array(u8, 16),
     serverPort: u16,
@@ -80,7 +78,7 @@ handshake: Event(Hello, Handshake, Server) {
 # Define a transition event that can be sent from the client to the server and vice versa.
 # This event can be sent in the Handshake state, and the desired state is the state that the client or server
 # wants to transition to.
-transition: Event(Transition, Handshake, Both) {
+TransitionBoth: Event(TransitionID, Handshake, Both) {
     desiredState: u8,
 }
 ```
