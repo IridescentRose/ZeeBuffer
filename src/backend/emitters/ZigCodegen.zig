@@ -51,6 +51,8 @@ fn generate_enums(self: *Self, writer: std.io.AnyWriter) !void {
 fn generate_struct_read(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) !void {
     try writer.print("\n\tpub fn read(self: *{s}, reader: Reader) !void {{\n", .{s.name});
 
+    var used: bool = false;
+
     for (s.entries) |e| {
         switch (e.type) {
             .Base => {
@@ -64,16 +66,22 @@ fn generate_struct_read(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) 
                 } else if (std.mem.eql(u8, sym.name, "bool")) {
                     try writer.print("\t\tself.{s} = try reader.readByte() != 0;\n", .{e.name});
                 }
+
+                used = true;
             },
 
             .User => {
                 try writer.print("\t\ttry self.{s}.read();\n", .{e.name});
+
+                used = true;
             },
 
             .FixedArray => {
                 try writer.print("\t\tself.{s}.len = {};\n", .{ e.name, e.extra });
                 try writer.print("\t\tself.{s}.ptr = reader.context.buffer.ptr + reader.context.pos;\n", .{e.name});
                 try writer.print("\t\ttry reader.skipBytes({}, .{{}});\n", .{e.extra});
+
+                used = true;
             },
 
             .VarArray => {
@@ -82,11 +90,17 @@ fn generate_struct_read(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) 
         }
     }
 
+    if (!used) {
+        try writer.print("\t\t_ = self;\n\t\t_ = reader;\n", .{});
+    }
+
     try writer.print("\t}}\n\n", .{});
 }
 
 fn generate_struct_write(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) !void {
     try writer.print("\tpub fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{s.name});
+
+    var used: bool = false;
 
     for (s.entries) |e| {
         switch (e.type) {
@@ -101,20 +115,27 @@ fn generate_struct_write(self: *Self, writer: std.io.AnyWriter, s: IR.Structure)
                 } else if (std.mem.eql(u8, sym.name, "bool")) {
                     try writer.print("\t\ttry writer.writeByte(self.{s} ? 1 : 0);\n", .{e.name});
                 }
+                used = true;
             },
 
             .User => {
                 try writer.print("\t\ttry self.{s}.write();\n", .{e.name});
+                used = true;
             },
 
             .FixedArray => {
                 try writer.print("\t\ttry writer.writeAll(self.{s});\n", .{e.name});
+                used = true;
             },
 
             .VarArray => {
                 return error.VarArrayUnimplemented;
             },
         }
+    }
+
+    if (!used) {
+        try writer.print("\t\t_ = self;\n\t\t_ = writer;\n", .{});
     }
 
     try writer.print("\t}}\n\n", .{});
