@@ -107,7 +107,7 @@ fn generate_struct_write(self: *Self, writer: std.io.AnyWriter, s: IR.Structure)
             .Base => {
                 const sym = self.ir.sym_tab.items[e.value];
                 if (std.mem.eql(u8, sym.name, "u8") or std.mem.eql(u8, sym.name, "u16") or std.mem.eql(u8, sym.name, "u32") or std.mem.eql(u8, sym.name, "u64") or std.mem.eql(u8, sym.name, "i8") or std.mem.eql(u8, sym.name, "i16") or std.mem.eql(u8, sym.name, "i32") or std.mem.eql(u8, sym.name, "i64")) {
-                    try writer.print("\t\ttry writer.writeInt(self.{s}, .{s});\n", .{ e.name, @tagName(self.ir.endian) });
+                    try writer.print("\t\ttry writer.writeInt({s}, self.{s}, .{s});\n", .{ sym.name, e.name, @tagName(self.ir.endian) });
                 } else if (std.mem.eql(u8, sym.name, "f32")) {
                     try writer.print("\t\ttry writer.writeInt(@as(u32, @bitCast(self.{s})), .{s});\n", .{ e.name, @tagName(self.ir.endian) });
                 } else if (std.mem.eql(u8, sym.name, "f64")) {
