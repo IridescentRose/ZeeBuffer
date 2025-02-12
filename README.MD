@@ -1,17 +1,17 @@
-# ZeeBuffers
+# ZeeBuffer
 
-ZeeBuffers is a cross-platform protocol specification language for serializing and deserializing structured data in a stateful client-server connection.
+ZeeBuffer is a cross-platform protocol specification language for serializing and deserializing structured data in a stateful client-server connection.
 
 It produces bindings in Zig currently, although [a C code generator is planned](https://github.com/IridescentRose/ZeeBuffer/issues/7)
 
-# Why use ZeeBuffers
+# Why use ZeeBuffer
 
-Use ZeeBuffers if:
+Use ZeeBuffer if:
 * Integrating with existing applications or the existing protocol cannot be modified (useful for RE)
 * Endianness may differ between sides of the connection, or is necessary to swap
 * Connections don't necessarily need to be socket based; e.g. SPI, UART, etc.
 
-ZeeBuffers is:
+ZeeBuffer is:
 * Multiplatform, with no platform-specific dependencies
 * Small, with a single file generated of code
 * Routable, with an interface to easily read packets and pass them to their respective handlers
