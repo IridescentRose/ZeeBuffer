@@ -74,7 +74,7 @@ fn add_enums(self: *Self, ir: *IR) !void {
                 return error.SemanticEnumAttributeLength;
             }
 
-            var entries = std.ArrayList(IR.EnumEntry).init(util.allocator());
+            var entries = std.ArrayList(IR.EnumEntry){};
 
             for (e.fields) |f| {
                 const value = try std.fmt.parseInt(
@@ -83,7 +83,7 @@ fn add_enums(self: *Self, ir: *IR) !void {
                     0,
                 );
 
-                try entries.append(.{
+                try entries.append(util.allocator(), .{
                     .name = self.source.get_token_text_by_idx(f.name),
                     .value = value,
                 });
@@ -111,7 +111,7 @@ fn add_enums(self: *Self, ir: *IR) !void {
             ir.add_to_enum_tab(.{
                 .name = self.source.get_token_text_by_idx(e.name),
                 .backing_type = @intCast(backing_type_idx),
-                .entries = try entries.toOwnedSlice(),
+                .entries = try entries.toOwnedSlice(util.allocator()),
             }) catch {
                 self.print_error(self.source.tokens[e.name], "Enum already exists!");
                 return error.SemanticEnumAlreadyExists;
@@ -211,7 +211,7 @@ fn add_structs(self: *Self, ir: *IR) !void {
             };
         }
 
-        var entries = std.ArrayList(IR.StructureEntry).init(util.allocator());
+        var entries = std.ArrayList(IR.StructureEntry){};
 
         for (e.fields) |f| {
             var f_type: IR.StructureType = .Base;
@@ -272,7 +272,7 @@ fn add_structs(self: *Self, ir: *IR) !void {
                 }
             }
 
-            try entries.append(.{
+            try entries.append(util.allocator(), .{
                 .name = self.source.get_token_text_by_idx(f.name),
                 .type = f_type,
                 .value = type_index,
@@ -282,7 +282,7 @@ fn add_structs(self: *Self, ir: *IR) !void {
 
         ir.add_to_struct_tab(.{
             .name = self.source.get_token_text_by_idx(e.name),
-            .entries = try entries.toOwnedSlice(),
+            .entries = try entries.toOwnedSlice(util.allocator()),
             .event = event,
             .event_id = event_id,
             .state_id = state_id,

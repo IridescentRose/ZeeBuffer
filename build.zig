@@ -10,9 +10,11 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zbc",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/main.zig"),
+        }),
     });
     b.installArtifact(exe);
 
@@ -35,9 +37,7 @@ pub fn build(b: *std.Build) void {
     // -----------
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = exe.root_module,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);

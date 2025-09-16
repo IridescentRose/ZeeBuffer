@@ -76,7 +76,7 @@ pub fn init(source: []const u8) Self {
 }
 
 pub fn tokenize(self: *Self) ![]Token {
-    var tokenArray = std.ArrayList(Token).init(util.allocator());
+    var tokenArray = try std.ArrayList(Token).initCapacity(util.allocator(), self.source.len / 4);
 
     while (self.curr_idx < self.source.len) : (self.curr_idx += 1) {
         switch (self.source[self.curr_idx]) {
@@ -103,7 +103,7 @@ pub fn tokenize(self: *Self) ![]Token {
                     continue;
                 }
 
-                try tokenArray.append(Token{
+                try tokenArray.append(util.allocator(), Token{
                     .kind = inline for (SymStrs) |pair| {
                         if (c == pair.char) {
                             break pair.kind;
@@ -123,7 +123,7 @@ pub fn tokenize(self: *Self) ![]Token {
 
     // Add the last identifier & EOF
     try self.default_ident(&tokenArray);
-    try tokenArray.append(Token{
+    try tokenArray.append(util.allocator(), Token{
         .kind = TokenKind.EOF,
         .start = self.curr_idx,
         .len = 0,
@@ -141,13 +141,13 @@ pub fn tokenize(self: *Self) ![]Token {
         }
     }
 
-    return try tokenArray.toOwnedSlice();
+    return tokenArray.toOwnedSlice(util.allocator());
 }
 
 // Check if we are in an identifier and if so, add it to the token array
 fn default_ident(self: *Self, tokenArray: *std.ArrayList(Token)) !void {
     if (self.in_ident and self.ident_len > 0) {
-        try tokenArray.append(.{
+        try tokenArray.append(util.allocator(), .{
             .kind = TokenKind.Ident,
             .start = self.curr_idx - self.ident_len,
             .len = self.ident_len,

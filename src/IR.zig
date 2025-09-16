@@ -84,15 +84,16 @@ endian: AST.Endian = .little,
 pub fn init(source: SourceObject) !Self {
     return .{
         .sym_tab = try create_default_table(),
-        .struct_tab = std.ArrayList(Structure).init(util.allocator()),
-        .enum_tab = std.ArrayList(Enum).init(util.allocator()),
+        .struct_tab = std.ArrayList(Structure){},
+        .enum_tab = std.ArrayList(Enum){},
         .source = source,
     };
 }
 
 fn create_default_table() !std.ArrayList(Symbol) {
-    var array = std.ArrayList(Symbol).init(util.allocator());
+    var array = std.ArrayList(Symbol){};
     try array.appendSlice(
+        util.allocator(),
         &[_]Symbol{
             Symbol{ .name = "u8", .type = .BaseType, .value = @intFromEnum(BaseType.U8) },
             Symbol{ .name = "u16", .type = .BaseType, .value = @intFromEnum(BaseType.U16) },
@@ -119,7 +120,7 @@ pub fn add_to_sym_tab(self: *Self, symbol: Symbol) !void {
         }
     }
 
-    try self.sym_tab.append(symbol);
+    try self.sym_tab.append(util.allocator(), symbol);
 }
 
 pub fn add_to_enum_tab(self: *Self, enumeration: Enum) !void {
@@ -130,7 +131,7 @@ pub fn add_to_enum_tab(self: *Self, enumeration: Enum) !void {
         }
     }
 
-    try self.enum_tab.append(enumeration);
+    try self.enum_tab.append(util.allocator(), enumeration);
 }
 
 pub fn add_to_struct_tab(self: *Self, structure: Structure) !void {
@@ -141,5 +142,5 @@ pub fn add_to_struct_tab(self: *Self, structure: Structure) !void {
         }
     }
 
-    try self.struct_tab.append(structure);
+    try self.struct_tab.append(util.allocator(), structure);
 }

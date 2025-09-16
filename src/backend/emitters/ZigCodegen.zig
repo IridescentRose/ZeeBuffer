@@ -11,7 +11,7 @@ pub fn init(ir: *const IR) Self {
     };
 }
 
-fn generate_states(self: *Self, writer: std.io.AnyWriter) !void {
+fn generate_states(self: *Self, writer: *std.io.Writer) !void {
     try writer.print("pub const States = enum(u32) {{\n", .{});
 
     for (self.ir.sym_tab.items) |s| {
@@ -23,7 +23,7 @@ fn generate_states(self: *Self, writer: std.io.AnyWriter) !void {
     try writer.print("}};\n\n", .{});
 }
 
-fn generate_enums(self: *Self, writer: std.io.AnyWriter) !void {
+fn generate_enums(self: *Self, writer: *std.io.Writer) !void {
     for (self.ir.enum_tab.items) |e| {
         // Find the backing type
         const sym = self.ir.sym_tab.items[e.backing_type];
@@ -35,12 +35,12 @@ fn generate_enums(self: *Self, writer: std.io.AnyWriter) !void {
         }
 
         // Generate reading function
-        try writer.print("\n\tpub fn read(self: *{s}, reader: Reader) !void {{\n", .{e.name});
+        try writer.print("\n\tpub fn read(self: *{s}, reader: std.io.Reader) !void {{\n", .{e.name});
         try writer.print("\t\tself.* = @enumFromInt(try reader.readInt({s}, .{s}));\n", .{ sym.name, @tagName(self.ir.endian) });
         try writer.print("\t}}\n\n", .{});
 
         // Generate writing function
-        try writer.print("\tpub fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{e.name});
+        try writer.print("\tpub fn write(self: *{s}, writer: std.io.Writer) !void {{\n", .{e.name});
         try writer.print("\t\ttry writer.writeInt({s}, @intFromEnum(self.*), .{s});\n", .{ sym.name, @tagName(self.ir.endian) });
         try writer.print("\t}}\n\n", .{});
 
@@ -48,7 +48,7 @@ fn generate_enums(self: *Self, writer: std.io.AnyWriter) !void {
     }
 }
 
-fn generate_struct_read(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) !void {
+fn generate_struct_read(self: *Self, writer: *std.io.Writer, s: IR.Structure) !void {
     try writer.print("\n\tpub fn read(self: *{s}, reader: Reader) !void {{\n", .{s.name});
 
     var used: bool = false;
@@ -97,7 +97,7 @@ fn generate_struct_read(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) 
     try writer.print("\t}}\n\n", .{});
 }
 
-fn generate_struct_write(self: *Self, writer: std.io.AnyWriter, s: IR.Structure) !void {
+fn generate_struct_write(self: *Self, writer: *std.io.Writer, s: IR.Structure) !void {
     try writer.print("\tpub fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{s.name});
 
     var used: bool = false;
@@ -141,7 +141,7 @@ fn generate_struct_write(self: *Self, writer: std.io.AnyWriter, s: IR.Structure)
     try writer.print("\t}}\n\n", .{});
 }
 
-fn generate_structs(self: *Self, writer: std.io.AnyWriter) !void {
+fn generate_structs(self: *Self, writer: *std.io.Writer) !void {
     for (self.ir.struct_tab.items) |s| {
         try writer.print("pub const {s} = struct {{\n", .{s.name});
 
@@ -166,7 +166,7 @@ fn generate_structs(self: *Self, writer: std.io.AnyWriter) !void {
     }
 }
 
-fn generate_handles_struct(self: *Self, writer: std.io.AnyWriter) !void {
+fn generate_handles_struct(self: *Self, writer: *std.io.Writer) !void {
     try writer.print("pub const Handles = struct {{\n", .{});
 
     for (self.ir.struct_tab.items) |s| {
@@ -178,7 +178,7 @@ fn generate_handles_struct(self: *Self, writer: std.io.AnyWriter) !void {
     try writer.print("}};\n\n", .{});
 }
 
-pub fn generate_handler_function(self: *Self, writer: std.io.AnyWriter) !void {
+pub fn generate_handler_function(self: *Self, writer: *std.io.Writer) !void {
     try writer.print("\tpub fn handle_packet(self: *Protocol, buffer: []u8, id: u8) anyerror!void {{\n", .{});
 
     try writer.print("\t\tvar fbs = std.io.fixedBufferStream(buffer);\n", .{});
@@ -254,11 +254,10 @@ pub fn generate_code(self: *Self, filename: []const u8) !void {
     var file = try std.fs.cwd().createFile(filename, .{});
     defer file.close();
 
-    const file_writer = file.writer();
-    var buffered_writer = std.io.bufferedWriter(file_writer);
-    defer buffered_writer.flush() catch unreachable;
-
-    const writer = buffered_writer.writer().any();
+    var buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(&buffer);
+    const writer = &file_writer.interface;
+    defer writer.flush() catch {};
 
     try writer.print("const std = @import(\"std\");\n\n", .{});
 

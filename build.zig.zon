@@ -1,7 +1,8 @@
 .{
-    .name = "ZeeBuffers",
-    .version = "0.1.0",
-    .minimum_zig_version = "0.13.0",
+    .name = .ZeeBuffer,
+    .fingerprint = 0xc7c446bc10ae5967,
+    .version = "0.2.0",
+    .minimum_zig_version = "0.15.1",
 
     .dependencies = .{},
 

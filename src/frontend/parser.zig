@@ -55,7 +55,7 @@ fn expect(self: *Self, tokens: []const Tokenizer.Token, kind: Tokenizer.TokenKin
 }
 
 pub fn parse(self: *Self) !AST {
-    var entries = std.ArrayList(AST.Entry).init(util.allocator());
+    var entries = try std.ArrayList(AST.Entry).initCapacity(util.allocator(), self.source.tokens.len);
     var endian = AST.Endian.little;
 
     const tokens = self.source.tokens;
@@ -69,20 +69,20 @@ pub fn parse(self: *Self) !AST {
 
                 endian =
                     if (std.mem.eql(u8, self.source.get_token_text(ident), "little"))
-                    .little
-                else if (std.mem.eql(u8, self.source.get_token_text(ident), "big"))
-                    .big
-                else blk: {
-                    const source = self.source.get_source_string(ident);
-                    const location = self.source.get_source_location(ident);
+                        .little
+                    else if (std.mem.eql(u8, self.source.get_token_text(ident), "big"))
+                        .big
+                    else blk: {
+                        const source = self.source.get_source_string(ident);
+                        const location = self.source.get_source_location(ident);
 
-                    std.debug.print("Expected 'little' or 'big' after '@endian', but got {s}!\n", .{self.source.get_token_text(ident)});
-                    std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
-                    std.debug.print("{s}\n", .{source});
-                    std.debug.print("Endianness is set to 'little' by default\n", .{});
+                        std.debug.print("Expected 'little' or 'big' after '@endian', but got {s}!\n", .{self.source.get_token_text(ident)});
+                        std.debug.print("At line {}, column {}\n", .{ location.line, location.column });
+                        std.debug.print("{s}\n", .{source});
+                        std.debug.print("Endianness is set to 'little' by default\n", .{});
 
-                    break :blk .little;
-                };
+                        break :blk .little;
+                    };
             },
 
             .KWState, .Ident => {
@@ -126,7 +126,7 @@ pub fn parse(self: *Self) !AST {
                 entry.fields = try self.parse_fields(tokens);
                 try self.expect(tokens, .RSquirly);
 
-                try entries.append(entry);
+                try entries.append(util.allocator(), entry);
             },
 
             .EOF => break,
@@ -136,13 +136,13 @@ pub fn parse(self: *Self) !AST {
 
     return AST{
         .endian = endian,
-        .entries = try entries.toOwnedSlice(),
+        .entries = try entries.toOwnedSlice(util.allocator()),
     };
 }
 
 fn parse_attribute(self: *Self, tokens: []const Tokenizer.Token) !AST.Attribute {
     var token = tokens[self.curr_token];
-    var values = std.ArrayList(AST.Index).init(util.allocator());
+    var values = std.ArrayList(AST.Index){};
 
     const kind: AST.AttributeKind = if (token.kind == .KWEnum) .Enum else if (token.kind == .KWEvent) .Event else unreachable;
 
@@ -154,7 +154,7 @@ fn parse_attribute(self: *Self, tokens: []const Tokenizer.Token) !AST.Attribute 
         if (token.kind == .RParen or token.kind == .EOF)
             break;
 
-        try values.append(@intCast(self.curr_token));
+        try values.append(util.allocator(), @intCast(self.curr_token));
     }
 
     try self.expect(tokens, .RParen);
@@ -162,12 +162,12 @@ fn parse_attribute(self: *Self, tokens: []const Tokenizer.Token) !AST.Attribute 
 
     return AST.Attribute{
         .kind = kind,
-        .values = try values.toOwnedSlice(),
+        .values = try values.toOwnedSlice(util.allocator()),
     };
 }
 
 fn parse_fields(self: *Self, tokens: []const Tokenizer.Token) ![]AST.Field {
-    var fields = std.ArrayList(AST.Field).init(util.allocator());
+    var fields = std.ArrayList(AST.Field){};
 
     // Consume opening brace
     self.curr_token += 1;
@@ -181,7 +181,7 @@ fn parse_fields(self: *Self, tokens: []const Tokenizer.Token) ![]AST.Field {
         try self.expect(tokens, .Ident);
 
         const name: AST.Index = @intCast(self.curr_token);
-        var values = std.ArrayList(AST.Index).init(util.allocator());
+        var values = std.ArrayList(AST.Index){};
 
         // Consume colon
         try self.expect_next(tokens, .Colon);
@@ -202,27 +202,27 @@ fn parse_fields(self: *Self, tokens: []const Tokenizer.Token) ![]AST.Field {
         token = tokens[self.curr_token];
 
         if (token.kind == .Ident) {
-            try values.append(@intCast(self.curr_token));
+            try values.append(util.allocator(), @intCast(self.curr_token));
         } else if (token.kind == .KWVarArray or token.kind == .KWFixedArray) {
-            try values.append(@intCast(self.curr_token));
+            try values.append(util.allocator(), @intCast(self.curr_token));
             try self.expect_next(tokens, .LParen);
 
             try self.expect_next(tokens, .Ident);
-            try values.append(@intCast(self.curr_token));
+            try values.append(util.allocator(), @intCast(self.curr_token));
 
             try self.expect_next(tokens, .Ident);
-            try values.append(@intCast(self.curr_token));
+            try values.append(util.allocator(), @intCast(self.curr_token));
 
             try self.expect_next(tokens, .RParen);
         } else {
             try self.expect(tokens, .Ident);
         }
 
-        try fields.append(.{
+        try fields.append(util.allocator(), .{
             .name = name,
-            .values = try values.toOwnedSlice(),
+            .values = try values.toOwnedSlice(util.allocator()),
         });
     }
 
-    return try fields.toOwnedSlice();
+    return fields.toOwnedSlice(util.allocator());
 }
