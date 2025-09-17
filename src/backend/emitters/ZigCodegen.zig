@@ -35,12 +35,12 @@ fn generate_enums(self: *Self, writer: *std.io.Writer) !void {
         }
 
         // Generate reading function
-        try writer.print("\n\tpub fn read(self: *{s}, reader: std.io.Reader) !void {{\n", .{e.name});
+        try writer.print("\n\tpub fn read(self: *{s}, reader: *std.io.Reader) !void {{\n", .{e.name});
         try writer.print("\t\tself.* = @enumFromInt(try reader.readInt({s}, .{s}));\n", .{ sym.name, @tagName(self.ir.endian) });
         try writer.print("\t}}\n\n", .{});
 
         // Generate writing function
-        try writer.print("\tpub fn write(self: *{s}, writer: std.io.Writer) !void {{\n", .{e.name});
+        try writer.print("\tpub fn write(self: *{s}, writer: *std.io.Writer) !void {{\n", .{e.name});
         try writer.print("\t\ttry writer.writeInt({s}, @intFromEnum(self.*), .{s});\n", .{ sym.name, @tagName(self.ir.endian) });
         try writer.print("\t}}\n\n", .{});
 
@@ -49,7 +49,7 @@ fn generate_enums(self: *Self, writer: *std.io.Writer) !void {
 }
 
 fn generate_struct_read(self: *Self, writer: *std.io.Writer, s: IR.Structure) !void {
-    try writer.print("\n\tpub fn read(self: *{s}, reader: Reader) !void {{\n", .{s.name});
+    try writer.print("\n\tpub fn read(self: *{s}, reader: *std.io.Reader) !void {{\n", .{s.name});
 
     var used: bool = false;
 
@@ -58,28 +58,26 @@ fn generate_struct_read(self: *Self, writer: *std.io.Writer, s: IR.Structure) !v
             .Base => {
                 const sym = self.ir.sym_tab.items[e.value];
                 if (std.mem.eql(u8, sym.name, "u8") or std.mem.eql(u8, sym.name, "u16") or std.mem.eql(u8, sym.name, "u32") or std.mem.eql(u8, sym.name, "u64") or std.mem.eql(u8, sym.name, "i8") or std.mem.eql(u8, sym.name, "i16") or std.mem.eql(u8, sym.name, "i32") or std.mem.eql(u8, sym.name, "i64")) {
-                    try writer.print("\t\tself.{s} = try reader.readInt({s}, .{s});\n", .{ e.name, sym.name, @tagName(self.ir.endian) });
+                    try writer.print("\t\tself.{s} = try reader.takeInt({s}, .{s});\n", .{ e.name, sym.name, @tagName(self.ir.endian) });
                 } else if (std.mem.eql(u8, sym.name, "f32")) {
-                    try writer.print("\t\tself.{s} = @bitCast(try reader.readInt(u32, .{s}));\n", .{ e.name, @tagName(self.ir.endian) });
+                    try writer.print("\t\tself.{s} = @bitCast(try reader.takeInt(u32, .{s}));\n", .{ e.name, @tagName(self.ir.endian) });
                 } else if (std.mem.eql(u8, sym.name, "f64")) {
-                    try writer.print("\t\tself.{s} = @bitCast(try reader.readInt(u64, .{s}));\n", .{ e.name, @tagName(self.ir.endian) });
+                    try writer.print("\t\tself.{s} = @bitCast(try reader.takeInt(u64, .{s}));\n", .{ e.name, @tagName(self.ir.endian) });
                 } else if (std.mem.eql(u8, sym.name, "bool")) {
-                    try writer.print("\t\tself.{s} = try reader.readByte() != 0;\n", .{e.name});
+                    try writer.print("\t\tself.{s} = try reader.takeByte() != 0;\n", .{e.name});
                 }
 
                 used = true;
             },
 
             .User => {
-                try writer.print("\t\ttry self.{s}.read();\n", .{e.name});
+                try writer.print("\t\ttry self.{s}.read(reader);\n", .{e.name});
 
                 used = true;
             },
 
             .FixedArray => {
-                try writer.print("\t\tself.{s}.len = {};\n", .{ e.name, e.extra });
-                try writer.print("\t\tself.{s}.ptr = reader.context.buffer.ptr + reader.context.pos;\n", .{e.name});
-                try writer.print("\t\ttry reader.skipBytes({}, .{{}});\n", .{e.extra});
+                try writer.print("\t\tself.{s} = try reader.take({});\n", .{ e.name, e.extra });
 
                 used = true;
             },
@@ -98,7 +96,7 @@ fn generate_struct_read(self: *Self, writer: *std.io.Writer, s: IR.Structure) !v
 }
 
 fn generate_struct_write(self: *Self, writer: *std.io.Writer, s: IR.Structure) !void {
-    try writer.print("\tpub fn write(self: *{s}, writer: std.io.AnyWriter) !void {{\n", .{s.name});
+    try writer.print("\tpub fn write(self: *{s}, writer: *std.io.Writer) !void {{\n", .{s.name});
 
     var used: bool = false;
 
@@ -181,8 +179,7 @@ fn generate_handles_struct(self: *Self, writer: *std.io.Writer) !void {
 pub fn generate_handler_function(self: *Self, writer: *std.io.Writer) !void {
     try writer.print("\tpub fn handle_packet(self: *Protocol, buffer: []u8, id: u8) anyerror!void {{\n", .{});
 
-    try writer.print("\t\tvar fbs = std.io.fixedBufferStream(buffer);\n", .{});
-    try writer.print("\t\tconst reader = fbs.reader();\n", .{});
+    try writer.print("\t\tvar reader = std.io.Reader.fixed(buffer);\n", .{});
 
     try writer.print("\n\t\tif (self.role == .Server) {{", .{});
     try writer.print("\n\t\t\tswitch (self.state) {{", .{});
@@ -199,7 +196,7 @@ pub fn generate_handler_function(self: *Self, writer: *std.io.Writer) !void {
                 if (std.mem.eql(u8, self.ir.sym_tab.items[st.state_id.?].name, s.name) and (st.direction.? == .Client or st.direction.? == .Both)) {
                     try writer.print("\t\t\t\t\t\t{} => {{\n", .{st.event_id.?});
                     try writer.print("\t\t\t\t\t\t\tvar event: {s} = undefined;\n", .{st.name});
-                    try writer.print("\t\t\t\t\t\t\ttry event.read(reader);\n", .{});
+                    try writer.print("\t\t\t\t\t\t\ttry event.read(&reader);\n", .{});
                     try writer.print("\t\t\t\t\t\t\tif (self.handle.handle_{s}) |pfn|\n", .{st.name});
                     try writer.print("\t\t\t\t\t\t\t\ttry pfn(self.context, event);\n", .{});
                     try writer.print("\t\t\t\t\t\t}},\n", .{});
@@ -230,7 +227,7 @@ pub fn generate_handler_function(self: *Self, writer: *std.io.Writer) !void {
                 if (std.mem.eql(u8, self.ir.sym_tab.items[st.state_id.?].name, s.name) and (st.direction.? == .Server or st.direction.? == .Both)) {
                     try writer.print("\t\t\t\t\t\t{} => {{\n", .{st.event_id.?});
                     try writer.print("\t\t\t\t\t\t\tvar event: {s} = undefined;\n", .{st.name});
-                    try writer.print("\t\t\t\t\t\t\ttry event.read(reader);\n", .{});
+                    try writer.print("\t\t\t\t\t\t\ttry event.read(&reader);\n", .{});
                     try writer.print("\t\t\t\t\t\t\tif (self.handle.handle_{s}) |pfn|\n", .{st.name});
                     try writer.print("\t\t\t\t\t\t\t\ttry pfn(self.context, event);\n", .{});
                     try writer.print("\t\t\t\t\t\t}},\n", .{});
@@ -260,8 +257,6 @@ pub fn generate_code(self: *Self, filename: []const u8) !void {
     defer writer.flush() catch {};
 
     try writer.print("const std = @import(\"std\");\n\n", .{});
-
-    try writer.print("pub const Reader = std.io.FixedBufferStream([]u8).Reader;\n\n", .{});
 
     try writer.print("pub const Roles = enum(u32) {{\n", .{});
     try writer.print("\tServer = 0,\n", .{});
