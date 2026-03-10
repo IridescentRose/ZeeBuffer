@@ -10,7 +10,10 @@ pub const Client = struct {
 
     fn playerIDRequestHandler(ctx: *anyopaque, event: protocol.PlayerIDRequest) !void {
         _ = ctx;
-        log.info("Player ID Request: {any}", .{event});
+        log.info("Player ID Request:", .{});
+        log.info("Username: {s}", .{event.username});
+        log.info("Key:      {s}", .{event.key});
+        log.info("Protocol: {d}", .{event.protocol_version});
     }
 
     pub fn run(self: *Client, io: std.Io) !void {
