@@ -1,0 +1,15 @@
+protocol MinecraftClassic {
+    endian: big,
+    version: 7,
+}
+
+states {
+    Connected = 0,
+}
+
+packet PlayerIDRequest : Connected[0x00] -> Server {
+    protocol_version:   u8,
+    username:           [u8; 64],
+    key:                [u8; 64],
+    extension:          u8,
+}

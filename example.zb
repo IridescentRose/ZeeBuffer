@@ -1,59 +1,124 @@
-# Set the byte order to big endian. This can be overriden per field, but this is the default.
-# This can only be set once per file.
-@endian big
-
-# Enum with a u8 backing type
-WeatherType : Enum(u8) {
-    Sunny: 1,
-    Cloudy: 2,
-    Rainy: 3,
+# ── Protocol configuration ──────────────────────────────────────────
+# Top-level block defining wire format globals for the entire protocol.
+# This must exist exactly once per protocol.
+protocol MyProtocol {
+    endian: big,
+    version: 1,
 }
 
-# Define the valid connection states. This can be used to restrict the packets that can be sent or received
-# based on the current state of the connection.
-# This can only be set once per file.
-@state {
-    Handshake: 0,
-    Login: 1,
-    Status: 2,
-    Play: 3,
+# ── States ───────────────────────────────────────────────────────────
+# States represent the current phase of a connection. Each packet
+# declares which state it is valid in. The numeric value is the
+# wire-level state ID.
+# This must exist exactly once per protocol.
+states {
+    Handshake = 0,
+    Login     = 1,
+    Status    = 2,
+    Play      = 3,
 }
 
-# Regular Data
-Vec3 {
+# ── Enums ────────────────────────────────────────────────────────────
+# Enums are declared with a backing integer type after the colon.
+# The backing type determines how many bytes the enum occupies on
+# the wire. Variants must be assigned explicit numeric values.
+enum WeatherType : u8 {
+    Sunny  = 1,
+    Cloudy = 2,
+    Rainy  = 3,
+}
+
+enum Direction : u8 {
+    North = 0,
+    East  = 1,
+    South = 2,
+    West  = 3,
+}
+
+# ── Structs ──────────────────────────────────────────────────────────
+# Structs are reusable composite types. They must be fully sized —
+# every field must have a deterministic size on the wire, either
+# fixed or length-prefixed. Structs can be embedded in packets or
+# in other structs, and can appear as array element types.
+struct Vec3 {
     x: f64,
     y: f64,
     z: f64,
 }
 
-# Enums can be used in attributes
-HandshakeEventIDs : Enum(u8) {
-    HandshakeID: 0,
-    TransitionID: 1,
+struct BoundingBox {
+    min: Vec3,    # structs can be nested inside other structs
+    max: Vec3,
 }
 
-# Define an event that can be sent from the client to the server
-# The Event attribute specifies the event ID number, the state it can be sent in, and the direction.
-# The event ID number must be unique within the target state.
-# The state must be a valid state defined in the @state block.
-HandshakeClient: Event(HandshakeID, Handshake, Client) {
+struct PlayerMetadata {
+    id:       u32,
+    health:   f32,
+    name:     [u8; u8],       # u8-prefixed string (max 255 bytes)
+    flags:    [u8; u16],      # u16-prefixed array of booleans
+    key:      [u8; 32],       # fixed 32-byte array (e.g. public key)
+}
+
+# ── Packets ───────────────────────────────────────────────────────────
+# Packets are the top-level messages sent over the wire. The syntax is:
+#
+#   packet <Name> : <State>[<ID>] -> <Direction>
+#
+# <State>     — must match a declared state name
+# <ID>        — hex literal, the packet ID byte(s) on the wire
+# <Direction> — Client (server sends), Server (client sends), or Both
+#
+# Field types can be primitives, enums, structs, or arrays.
+# All arrays must be explicitly sized — either fixed [T; N] or
+# prefixed [T; u8 | u16 | u32 | varint].
+# Arrays cannot be nested
+
+# Sent by the client to initiate a connection.
+packet HandshakeRequest : Handshake[0x00] -> Server {
     protocolVersion: u32,
-    username: Array(u8, 16),
-    key: Array(u8, 32),
+    username:        [u8; u8],     # u8-prefixed username string
+    key:             [u8; 32],     # fixed-size 32-byte public key
 }
 
-# Define a event that can be sent from the server to the client
-# To send to both the client and the server, use the Both direction.
-# It is valid to have multiple events with the same ID number, as long as they are in different states and/or directions.
-HandshakeServer: Event(HandshakeID, Handshake, Server) {
+# Sent by the server in response to a handshake request.
+packet HandshakeResponse : Handshake[0x00] -> Client {
     protocolVersion: u32,
-    serverAddress: Array(u8, 16),
-    serverPort: u16,
+    serverAddress:   [u8; u8],    # u8-prefixed server address string
+    serverPort:      u16,
 }
 
-# Define a transition event that can be sent from the client to the server and vice versa.
-# This event can be sent in the Handshake state, and the desired state is the state that the client or server
-# wants to transition to.
-TransitionBoth: Event(TransitionID, Handshake, Both) {
+# Sent by either side to negotiate a state transition.
+# Both means this packet ID is valid in either send direction.
+packet StateTransition : Handshake[0x01] -> Both {
     desiredState: u8,
+}
+
+# Demonstrates struct embedding — Vec3 is fully sized (3x f64 = 24 bytes)
+# so it can be used as a plain field with no extra size annotation needed.
+packet MovementCommand : Play[0x07] -> Server {
+    entityId: u32,
+    newPos:   Vec3,
+    velocity: Vec3,
+}
+
+# Demonstrates enum fields — WeatherType occupies 1 byte on the wire
+# (its backing type is u8), Direction likewise.
+packet EnvironmentUpdate : Play[0x08] -> Client {
+    weather:   WeatherType,
+    facing:    Direction,
+    timeOfDay: u32,
+}
+
+# Demonstrates an array of structs — each element is a fully sized
+# PlayerMetadata, prefixed by a u16 element count.
+packet LobbySnapshot : Login[0x01] -> Client {
+    players: [PlayerMetadata; u16],
+}
+
+# Demonstrates varint-prefixed arrays, common in protocols like
+# Minecraft where compact variable-length encoding is preferred.
+packet ChunkData : Play[0x09] -> Client {
+    chunkX:   i32,
+    chunkZ:   i32,
+#    blockIds: [u16; varint],    # varint element count, then N u16s
 }

@@ -1,0 +1,179 @@
+# ZeeBuffer Grammar
+# EBNF-style notation:
+#   =       definition
+#   ;       end of rule
+#   |       alternation
+#   [ ]     optional (zero or one)
+#   { }     repetition (zero or more)
+#   ( )     grouping
+#   " "     terminal (literal token)
+#   UPPER   terminal token kinds (from the lexer)
+#   lower   non-terminal rules
+
+# ── File ─────────────────────────────────────────────────────────────────────
+# A valid file requires exactly one protocol block and one states block,
+# both of which must appear before any other declarations.
+
+file
+    = protocol_decl
+      states_decl
+      { decl }
+      EOF
+    ;
+
+# ── Top-level declarations ────────────────────────────────────────────────────
+
+decl
+    = enum_decl
+    | struct_decl
+    | packet_decl
+    ;
+
+# ── Protocol block ────────────────────────────────────────────────────────────
+# Required. Must appear exactly once, at the top of the file.
+# Contains key-value configuration entries.
+#
+#   protocol MyProtocol {
+#       endian: big,
+#       version: 1,
+#   }
+
+protocol_decl
+    = "protocol" IDENTIFIER "{" { key_value "," } "}"
+    ;
+
+key_value
+    = IDENTIFIER ":" IDENTIFIER
+    | IDENTIFIER ":" INT_LITERAL
+    ;
+
+# ── States block ──────────────────────────────────────────────────────────────
+# Required. Must appear exactly once, after the protocol block.
+# Declares the valid connection phases and their wire-level IDs.
+#
+#   states {
+#       Handshake = 0,
+#       Login     = 1,
+#   }
+
+states_decl
+    = "states" "{" { state_entry "," } "}"
+    ;
+
+state_entry
+    = IDENTIFIER "=" INT_LITERAL
+    ;
+
+# ── Enum declaration ──────────────────────────────────────────────────────────
+# The backing type must be an unsigned integer primitive (u8, u16, u32, u64).
+# Verified in sema, not the parser — the parser treats it as a named type.
+#
+#   enum WeatherType : u8 {
+#       Sunny  = 1,
+#       Cloudy = 2,
+#   }
+
+enum_decl
+    = "enum" IDENTIFIER ":" IDENTIFIER "{" { enum_variant "," } "}"
+    ;
+
+enum_variant
+    = IDENTIFIER "=" INT_LITERAL
+    ;
+
+# ── Struct declaration ────────────────────────────────────────────────────────
+# All fields must be fully sized — no unsized types permitted.
+# Verified in sema, not the parser.
+#
+#   struct Vec3 {
+#       x: f64,
+#       y: f64,
+#       z: f64,
+#   }
+
+struct_decl
+    = "struct" IDENTIFIER "{" { field_decl "," } "}"
+    ;
+
+# ── Packet declaration ────────────────────────────────────────────────────────
+# state     — must match a declared state name (verified in sema)
+# id        — hex or decimal literal, the wire-level packet ID
+# direction — must be one of: Client | Server | Both (verified in sema)
+#
+#   packet HandshakeRequest : Handshake[0x00] -> Client {
+#       protocolVersion: u32,
+#       username:        [u8; u8],
+#   }
+
+packet_decl
+    = "packet" IDENTIFIER ":" IDENTIFIER "[" INT_LITERAL "]" "->" IDENTIFIER
+      "{" { field_decl "," } "}"
+    ;
+
+# ── Field declaration ─────────────────────────────────────────────────────────
+# Used in both struct and packet bodies.
+#
+#   name: Type
+#   name: [ElementType; SizeSpec]
+
+field_decl
+    = IDENTIFIER ":" type_expr
+    ;
+
+# ── Type expressions ──────────────────────────────────────────────────────────
+
+type_expr
+    = named_type
+    | array_type
+    ;
+
+# A plain named type — any identifier. Could be a primitive (u8, f64, varint),
+# a struct name, or an enum name. The parser does not distinguish between them;
+# resolution is deferred to the lowerer.
+
+named_type
+    = IDENTIFIER
+    ;
+
+# Array type — element must be a named type (no nested arrays).
+# size_spec is either a fixed integer count or a prefix type name.
+# The parser accepts any identifier or int literal as the size spec;
+# sema validates that it is a legal prefix type or a positive integer.
+#
+#   [u8; 32]       fixed: exactly 32 elements
+#   [u8; u16]      prefixed: a u16 on the wire precedes the data
+#   [Vec3; varint] prefixed: a varint on the wire precedes the data
+
+array_type
+    = "[" IDENTIFIER ";" size_spec "]"
+    ;
+
+size_spec
+    = INT_LITERAL   # fixed size  — e.g. 32
+    | IDENTIFIER    # prefix type — e.g. u8, u16, u32, varint
+    ;
+
+# ── Terminals ─────────────────────────────────────────────────────────────────
+# These correspond directly to TokenKind values from the lexer.
+
+# IDENTIFIER    — any unquoted name: protocol/type/field/variant names
+# INT_LITERAL   — decimal, hex (0x...), or octal (0o...) integer
+# EOF           — end of token stream
+
+# Punctuation terminals (identity-mapped to ASCII in TokenKind):
+#   ","   comma
+#   ":"   colon
+#   ";"   semicolon
+#   "="   equals
+#   "["   l_bracket
+#   "]"   r_bracket
+#   "{"   l_brace
+#   "}"   r_brace
+#   "->"  arrow
+
+# Keywords (matched by the lexer before falling through to IDENTIFIER):
+#   "protocol"   kw_protocol
+#   "states"     kw_states
+#   "enum"       kw_enum
+#   "struct"     kw_struct
+#   "packet"     kw_packet
