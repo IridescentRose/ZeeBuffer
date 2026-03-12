@@ -13,3 +13,6 @@ packet PlayerIDRequest : Connected[0x00] -> Server {
     key:                [u8; 64],
     extension:          u8,
 }
+
+packet KeepAlive : Connected[0x01] -> Both {
+}

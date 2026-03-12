@@ -194,6 +194,14 @@ fn emitPacket(ir: *const Program, p: *const IR.Packet, writer: *std.Io.Writer) !
 ///     prefix array → read prefix int N, slice buffer[pos..][0..N],
 ///                    advance reader by N bytes
 fn emitReadMethod(ir: *const Program, fields: []const IR.Field, writer: *std.Io.Writer) !void {
+    if (fields.len == 0) {
+        try writer.print("    pub fn read(reader: *std.Io.Reader) !Self {{\n", .{});
+        try writer.print("        _ = reader;\n", .{});
+        try writer.print("        return .{{}};\n", .{});
+        try writer.print("    }}\n", .{});
+        return;
+    }
+
     try writer.print("    pub fn read(reader: *std.Io.Reader) !Self {{\n", .{});
     try writer.print("        var self: Self = undefined;\n", .{});
 
@@ -359,6 +367,14 @@ fn emitPrefixArrayRead(ir: *const Program, name: []const u8, pt: IR.PrefixType, 
 ///     fixed array  → writer.writeAll(&self.field)
 ///     prefix array → write prefix int (len), then writer.writeAll(self.field)
 fn emitWriteMethod(ir: *const Program, fields: []const IR.Field, writer: *std.Io.Writer) !void {
+    if (fields.len == 0) {
+        try writer.print("    pub fn write(self: *const Self, writer: *std.Io.Writer) !void {{\n", .{});
+        try writer.print("        _ = self;\n", .{});
+        try writer.print("        _ = writer;\n", .{});
+        try writer.print("    }}\n", .{});
+        return;
+    }
+
     try writer.print("    pub fn write(self: *const Self, writer: *std.Io.Writer) !void {{\n", .{});
 
     for (fields) |field| {
