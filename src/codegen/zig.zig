@@ -147,7 +147,7 @@ fn emitStruct(ir: *const Program, s: *const IR.Struct, writer: *std.Io.Writer) !
     // 3. emit read method  (see emitReadMethod)
     try emitReadMethod(ir, s.fields, writer);
     // 4. emit write method (see emitWriteMethod)
-    try emitWriteMethod(ir, s.fields, writer);
+    try emitWriteMethod(ir, s.fields, null, writer);
 
     try writer.print("}};\n\n", .{});
 }
@@ -173,7 +173,7 @@ fn emitPacket(ir: *const Program, p: *const IR.Packet, writer: *std.Io.Writer) !
     // 3. emit read method  (see emitReadMethod)
     try emitReadMethod(ir, p.fields, writer);
     // 4. emit write method (see emitWriteMethod)
-    try emitWriteMethod(ir, p.fields, writer);
+    try emitWriteMethod(ir, p.fields, p.id, writer);
 
     try writer.print("}};\n\n", .{});
 }
@@ -366,8 +366,8 @@ fn emitPrefixArrayRead(ir: *const Program, name: []const u8, pt: IR.PrefixType, 
 ///     struct_ref   → delegate to self.field.write(writer)
 ///     fixed array  → writer.writeAll(&self.field)
 ///     prefix array → write prefix int (len), then writer.writeAll(self.field)
-fn emitWriteMethod(ir: *const Program, fields: []const IR.Field, writer: *std.Io.Writer) !void {
-    if (fields.len == 0) {
+fn emitWriteMethod(ir: *const Program, fields: []const IR.Field, packet_id: ?u32, writer: *std.Io.Writer) !void {
+    if (fields.len == 0 and packet_id == null) {
         try writer.print("    pub fn write(self: *const Self, writer: *std.Io.Writer) !void {{\n", .{});
         try writer.print("        _ = self;\n", .{});
         try writer.print("        _ = writer;\n", .{});
@@ -376,6 +376,14 @@ fn emitWriteMethod(ir: *const Program, fields: []const IR.Field, writer: *std.Io
     }
 
     try writer.print("    pub fn write(self: *const Self, writer: *std.Io.Writer) !void {{\n", .{});
+
+    if (packet_id) |id| {
+        try writer.print("        try writer.writeInt(u32, 0x{X}, .{s});\n", .{ id, @tagName(ir.protocol.endian) });
+    }
+
+    if (fields.len == 0) {
+        try writer.print("        _ = self;\n", .{});
+    }
 
     for (fields) |field| {
         switch (field.type) {
