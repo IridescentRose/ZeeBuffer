@@ -378,7 +378,7 @@ fn emitWriteMethod(ir: *const Program, fields: []const IR.Field, packet_id: ?u32
     try writer.print("    pub fn write(self: *const Self, writer: *std.Io.Writer) !void {{\n", .{});
 
     if (packet_id) |id| {
-        try writer.print("        try writer.writeInt(u32, 0x{X}, .{s});\n", .{ id, @tagName(ir.protocol.endian) });
+        try writer.print("        try writer.writeInt(u8, 0x{X}, .{s});\n", .{ id, @tagName(ir.protocol.endian) });
     }
 
     if (fields.len == 0) {
