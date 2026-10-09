@@ -2,7 +2,7 @@
     .name = .ZeeBuffer,
     .version = "0.2.0",
     .fingerprint = 0xc7c446bcbb105245, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0-dev.2682+02142a54d",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",
